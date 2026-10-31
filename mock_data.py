@@ -125,7 +125,8 @@ class MockFortiGate:
     # --- Tabelas genéricas do cmdb (SSIDs, FortiAPs, agendamentos, software switch) ---
     KEYS = {"cmdb/wireless-controller/vap": "name", "cmdb/wireless-controller/wtp": "wtp-id",
             "cmdb/wireless-controller/wtp-profile": "name", "cmdb/firewall.schedule/onetime": "name",
-            "cmdb/system/switch-interface": "name"}
+            "cmdb/system/switch-interface": "name", "cmdb/system/interface": "name",
+            "cmdb/system.dhcp/server": "id", "cmdb/firewall/policy": "policyid"}
 
     def _init_tables(self):
         radios = {"radio-1": {"mode": "ap", "vap-all": "tunnel", "vaps": []},
@@ -151,6 +152,24 @@ class MockFortiGate:
             "cmdb/firewall.schedule/onetime": [],
             "cmdb/system/switch-interface": [
                 {"name": "wifi-sw", "type": "switch", "member": [{"interface-name": "Acampamento"}]}],
+            "cmdb/system/interface": [
+                {"name": "wan", "ip": "200.100.50.2 255.255.255.248", "role": "wan"},
+                {"name": "internal", "ip": "192.168.1.99 255.255.255.0", "role": "lan"},
+                {"name": "Acampamento", "ip": "10.10.30.1 255.255.255.0", "type": "vap-switch"},
+                {"name": "Equipe", "ip": "10.10.40.1 255.255.255.0", "type": "vap-switch"},
+                {"name": "outra-rede", "ip": "10.250.1.1 255.255.255.0", "role": "lan"},
+            ],
+            "cmdb/system.dhcp/server": [
+                {"id": 1, "interface": "Acampamento", "netmask": "255.255.255.0", "default-gateway": "10.10.30.1",
+                 "ip-range": [{"id": 1, "start-ip": "10.10.30.10", "end-ip": "10.10.30.250"}]}],
+            "cmdb/firewall/policy": [
+                {"policyid": 3, "name": "wifi-internet", "srcintf": [{"name": "Acampamento"}],
+                 "dstintf": [{"name": "wan"}], "srcaddr": [{"name": "all"}], "dstaddr": [{"name": "all"}],
+                 "action": "accept", "schedule": "always", "service": [{"name": "ALL"}], "nat": "enable",
+                 "utm-status": "enable", "webfilter-profile": "default", "groups": [{"name": "WiFi-Google"}]},
+                {"policyid": 4, "name": "negar-tudo", "srcintf": [{"name": "any"}], "dstintf": [{"name": "any"}],
+                 "srcaddr": [{"name": "all"}], "dstaddr": [{"name": "all"}], "action": "deny"},
+            ],
         }
         # MOCK_SSID_MODE imita como o SSID principal está montado: switch (padrão), tunnel ou bridge
         import os
@@ -190,8 +209,14 @@ class MockFortiGate:
             raise FortiGateError(f"FortiGate respondeu 500 em POST {path}: entrada duplicada", status=500)
         if path.endswith("/vap") and len(data["name"]) > 15:
             raise FortiGateError("FortiGate respondeu 500: nome do SSID com mais de 15 caracteres", status=500)
-        rows.append(copy.deepcopy(data))
-        return {"status": "success"}
+        data = copy.deepcopy(data)
+        if key in ("id", "policyid") and not data.get(key):
+            data[key] = max([r.get(key, 0) for r in rows] + [0]) + 1
+        rows.append(data)
+        if path.endswith("/vap"):   # o FortiGate cria a interface do SSID junto
+            self._tables["cmdb/system/interface"].append({"name": data["name"], "ip": "0.0.0.0 0.0.0.0",
+                                                          "type": "vap-switch"})
+        return {"status": "success", "mkey": data[key]}
 
     def update(self, path, mkey, data):
         rows, key, _ = self._table(path)
@@ -207,12 +232,26 @@ class MockFortiGate:
 
     def remove(self, path, mkey):
         rows, key, _ = self._table(path)
+        if path.endswith("/vap"):
+            used = [p["policyid"] for p in self._tables["cmdb/firewall/policy"]
+                    if mkey in [i["name"] for i in p.get("srcintf", [])]]
+            used += [d["id"] for d in self._tables["cmdb/system.dhcp/server"] if d.get("interface") == mkey]
+            if used:   # como no FortiGate: não apaga SSID ainda usado por política/DHCP
+                raise FortiGateError(f"FortiGate respondeu 500: SSID {mkey} ainda em uso", status=500)
+            self._tables["cmdb/system/interface"][:] = [i for i in self._tables["cmdb/system/interface"]
+                                                         if i["name"] != mkey]
         rows[:] = [r for r in rows if str(r.get(key)) != str(mkey)]
         return {"status": "success"}
 
+    def move_policy(self, policyid, before):
+        rows = self._table("cmdb/firewall/policy")[0]
+        moving = next(r for r in rows if r["policyid"] == policyid)
+        rows.remove(moving)
+        rows.insert(next(i for i, r in enumerate(rows) if r["policyid"] == before), moving)
+        return {"status": "success"}
+
     def policies(self):
-        return [{"policyid": 3, "name": "wifi-internet", "srcintf": [{"name": "Acampamento"}],
-                 "dstintf": [{"name": "wan"}], "groups": [], "users": []}]
+        return self.get("cmdb/firewall/policy")
 
     # --- Estado em tempo real ---
     def wifi_clients(self):

@@ -91,6 +91,8 @@ if [ -f "$APP_DIR/.env" ]; then
   # Funções novas que precisam de configuração (e de permissões novas no token do FortiGate)
   MISSING=()
   grep -q "^FGT_MAIN_SSID='[^']" "$APP_DIR/.env" || MISSING+=("aba SSIDs (SSID principal e permissões de Wi-Fi no token)")
+  grep -qE "^FGT_PERMISSIONS='(2|manual)'" "$APP_DIR/.env" \
+    || MISSING+=("permissões novas do token: rede própria dos SSIDs novos (IP, DHCP e política de internet)")
   if [ ${#MISSING[@]} -gt 0 ]; then
     info "Esta versão tem funções que ainda não estão configuradas no seu servidor:"
     for m in "${MISSING[@]}"; do info "  - $m"; done

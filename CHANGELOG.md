@@ -3,6 +3,11 @@
 Cada versão nova aumenta o número depois do ponto (1.0, 1.1, 1.2...). O botão **Atualizações** do painel
 mostra as versões disponíveis e o que cada uma traz, a partir deste arquivo.
 
+## 1.4 — 2026-10-31
+- Aba SSIDs: quando o SSID principal está em modo túnel, cada SSID novo ganha **rede própria**: uma faixa de IP livre, servidor DHCP e uma política de internet copiada da política do SSID principal (mesma saída, NAT e perfis de segurança). Ao remover o SSID, tudo isso é apagado junto.
+- A lista de SSIDs mostra a rede (faixa de IP) de cada SSID criado pelo painel.
+- O token do FortiGate precisa poder criar políticas: rode o instalador e refaça a configuração uma vez.
+
 ## 1.3 — 2026-10-31
 - Aba SSIDs: o botão "Novo SSID" fica sempre visível. Quando falta algo, ele aparece desativado e o aviso amarelo explica o quê.
 - Aba SSIDs: mostra como o SSID principal está montado (bridge, software switch ou túnel) e se os SSIDs novos vão ter rede.

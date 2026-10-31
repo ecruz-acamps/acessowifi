@@ -163,8 +163,8 @@ Se a porta HTTPS de administração não for 443 (*System > Settings > HTTPS por
 **Perfil** — *System > Admin Profiles > Create New*, nome `api-acessowifi`:
 - *User & Authentication*: **Read/Write**
 - *WiFi & Switch*: **Read/Write** (criar SSIDs e escolher em quais FortiAPs aparecem)
-- *Firewall*: **Custom** → *Address*: **Read/Write**, *Policy*: **Read**, *Schedule*: **Read/Write**, o resto **None**
-- *Network*: **Custom** → *Configuration*: **Read/Write** (incluir SSIDs extras no software switch), o resto **None**
+- *Firewall*: **Custom** → *Address*: **Read/Write**, *Policy*: **Read/Write** (políticas dos SSIDs extras), *Schedule*: **Read/Write**, o resto **None**
+- *Network*: **Custom** → *Configuration*: **Read/Write** (IP e DHCP dos SSIDs extras, ou incluí-los no software switch), o resto **None**
 - todo o resto: **None**
 
 **Admin** — *System > Administrators > Create New > REST API Admin*:
@@ -182,7 +182,7 @@ config system accprofile
         set fwgrp custom
         config fwgrp-permission
             set address read-write
-            set policy read
+            set policy read-write
             set schedule read-write
         end
         set netgrp custom
@@ -226,21 +226,20 @@ A aba **SSIDs** do painel cria redes Wi-Fi adicionais, por exemplo "Acampamento-
 - **Em quais FortiAPs:** cada AP passa a ter a própria lista de SSIDs por rádio (*Override* em *Managed FortiAPs*). Depois de cada mudança, o painel confere se o **SSID principal continua em todos os APs onde estava**; se não, desfaz a mudança.
 - O painel só altera ou remove SSIDs criados por ele (nome interno começando com `aw-`). O principal e os outros SSIDs aparecem na lista, mas não podem ser alterados pela aba.
 
-### Mesma rede do SSID principal
+### Rede dos SSIDs extras
 
-No FortiGate, cada SSID em modo **túnel** (o padrão) é uma interface separada, com a própria faixa de IP. Para outro SSID usar a **mesma** rede, há dois caminhos:
+Depende de como o SSID principal está montado. O instalador, o `acessowifi testar` e a própria aba dizem qual é o caso:
 
-1. **SSID principal num software switch:** o IP, o DHCP, o captive portal e as políticas ficam no switch, e o painel só inclui o SSID novo como membro. É o caso mais comum quando a rede foi pensada para vários SSIDs.
-2. **SSID principal em modo bridge** (*local bridging*, com ou sem VLAN): o SSID novo usa a mesma VLAN, sem mais nada.
+| SSID principal | Rede de cada SSID novo |
+|---|---|
+| **Túnel** (o padrão), fora de software switch | **Rede própria**, criada pelo painel: uma faixa `/24` livre de `10.250.0.0/16` (por exemplo `10.250.2.0/24`, gateway `.1`), servidor DHCP (`.10` a `.250`, DNS do FortiGate) e uma política de internet `aw-<nome>` **copiada da política do SSID principal** (mesma saída, NAT e perfis de segurança), colocada logo acima dela |
+| **Software switch** | Entra no mesmo switch: mesma rede, DHCP e políticas do principal |
+| **Bridge** (*local bridging*) | Mesma VLAN do principal |
 
-O instalador e o `acessowifi testar` dizem em qual caso você está. Se o SSID principal for uma rede própria em túnel, **fora** de software switch, a aba mostra o aviso e não cria SSIDs, porque eles ficariam sem rede.
-
-Colocar o SSID principal num software switch **muda a rede do Wi-Fi** e não é feito automaticamente. Em resumo:
-- remover o servidor DHCP e as políticas que usam o SSID;
-- criar o software switch (*Network > Interfaces > Create New > Interface*, tipo *Software Switch*) com o SSID como membro;
-- recriar no switch o IP, o DHCP, o captive portal, os grupos, a lista de exceção e as políticas.
-
-O Wi-Fi fica fora durante a troca, então faça numa janela de manutenção. Para preparar os comandos exatos para o seu FortiGate, use a saída de `show wireless-controller vap <SSID>`, `show system interface <SSID>`, `show system dhcp server` e `show firewall policy`.
+- A faixa pode ser trocada com `FGT_SSID_NETWORKS` no `.env` (padrão `10.250.0.0/16`). O painel pula faixas já usadas por qualquer interface ou DHCP.
+- Na rede própria, o acesso "igual ao principal" mantém os grupos de usuário da política. "WPA2" e "sem senha" ficam sem grupos, senão ninguém navegaria.
+- Ao remover o SSID, o painel apaga junto a política, o DHCP e a interface dele.
+- Na rede própria, a política modelo é a primeira política que aceita tráfego com origem no SSID principal. Se ela não existir, a aba avisa e não cria SSIDs.
 
 ## Como conferir
 
@@ -266,7 +265,7 @@ Ele testa a conexão, as permissões e os grupos. Também cria e apaga um usuár
 | Aparelho liberado conecta mas não navega | Política exige grupo de usuário | Passo 4 |
 | Validade adiantada ou atrasada algumas horas | Fusos diferentes | Passo 8 |
 | Aba SSIDs: "o token ainda não tem essa permissão" / 403 | Instalação feita antes da aba SSIDs | `./deploy/install.sh`, responda **sim** para refazer a configuração (o perfil ganha as permissões novas) |
-| Aba SSIDs: "o SSID principal é uma rede própria" | SSID principal em túnel fora de software switch | Veja [SSIDs extras](#ssids-extras-aba-ssids) |
+| Aba SSIDs: "Não achei a política de firewall que dá internet ao SSID" | O SSID principal em túnel não tem política com origem nele (ex.: a política usa um zone) | Veja [SSIDs extras](#ssids-extras-aba-ssids) |
 | Modo automático: `Permission denied` / `Command fail` | Admin informado não é super_admin | Use um admin com perfil super_admin |
 | Modo automático: "usa VDOMs" | VDOMs habilitados | Use o modo manual, com os comandos dentro de `config vdom` / `config global` |
 | `command parse error before 'vdom'` no admin de API | FortiOS 7.2 sem VDOMs não tem esse campo | Apague a linha `set vdom "root"` (só no 7.2) |
@@ -290,6 +289,7 @@ config wireless-controller vap
 end
 config firewall policy
     delete <id da política acessowifi-mac-liberados, se criada>
+    delete <id de cada política aw-*, dos SSIDs extras>
 end
 config user security-exempt-list
     delete "WiFi-Liberados"

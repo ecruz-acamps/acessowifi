@@ -825,7 +825,10 @@ def check_fortigate_command(escrita):
         ready, reason, switch = ssids.readiness(fgt)
         if not ready:
             raise FortiGateError(reason)
-        return f"principal '{ssids.main_vap_name()}'" + (f", software switch '{switch}'" if switch else ", modo bridge")
+        info = ssids.main_info(fgt)
+        how = {"bridge": "modo bridge (mesma VLAN)", "switch": f"software switch '{switch}' (mesma rede)",
+               "own": "modo túnel (cada SSID novo ganha rede própria)"}.get(info["mode"], info["mode"])
+        return f"principal '{info['name']}', {how}"
     check("SSIDs extras (aba SSIDs)", ssid_check)
 
     if escrita and has_guest:

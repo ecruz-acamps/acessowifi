@@ -72,8 +72,8 @@ class FortiGate:
         self._cache[key] = (time.monotonic(), results)
         return results
 
-    def _write(self, method, path, json=None):
-        data = self._request(method, path, json=json)
+    def _write(self, method, path, json=None, params=None):
+        data = self._request(method, path, params=params, json=json)
         self._cache.clear()
         return data
 
@@ -99,6 +99,11 @@ class FortiGate:
 
     def remove(self, path, mkey):
         return self._write("DELETE", self._item(path, mkey))
+
+    def move_policy(self, policyid, before):
+        """Move a política 'policyid' para logo acima da 'before'."""
+        return self._write("PUT", self._item("cmdb/firewall/policy", policyid),
+                           params={"action": "move", "before": before})
 
     # --- Configuração (cmdb) ---
     def local_users(self):

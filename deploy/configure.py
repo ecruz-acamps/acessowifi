@@ -340,9 +340,8 @@ def _auto_configure(cli, host, names):
     elif in_switch:
         ok(f"SSIDs extras: vão entrar no software switch '{in_switch}', junto com o '{vap_name}'.")
     else:
-        warn(f"SSIDs extras: o '{vap_name}' é uma rede própria (túnel, fora de software switch).")
-        warn("Para a aba SSIDs criar redes na MESMA rede dele, o SSID principal precisa estar num")
-        warn(f"software switch. Isso muda a rede e não é feito automaticamente: veja {DOCS}, \"SSIDs extras\".")
+        ok(f"SSIDs extras: o '{vap_name}' está em túnel; cada SSID novo vai ganhar rede própria "
+           "(faixa de IP, DHCP e política de internet copiada da dele).")
 
     group_key = next((k for k in ("selected-usergroups", "usergroup") if k in vap), "selected-usergroups")
     vap_groups = values(vap.get(group_key))
@@ -427,10 +426,10 @@ def _auto_configure(cli, host, names):
             break
 
     # 7. Perfil e admin da API
-    plan.append((f"Perfil '{names['profile']}': usuários, endereços, agendamentos, Wi-Fi e interfaces "
-                 "(leitura/escrita), políticas (leitura)", [
+    plan.append((f"Perfil '{names['profile']}': usuários, endereços, agendamentos, Wi-Fi, interfaces/DHCP e "
+                 "políticas (leitura/escrita; o painel só altera o que ele mesmo cria)", [
         "config system accprofile", f"edit {q(names['profile'])}", "set authgrp read-write", "set wifi read-write",
-        "set fwgrp custom", "config fwgrp-permission", "set address read-write", "set policy read",
+        "set fwgrp custom", "config fwgrp-permission", "set address read-write", "set policy read-write",
         "set schedule read-write", "end",
         "set netgrp custom", "config netgrp-permission", "set cfg read-write", "end",
         "next", "end"]))
@@ -618,6 +617,8 @@ def main():
         "FGT_HOST": result["host"], "FGT_TOKEN": result["token"], "FGT_VDOM": "root", "FGT_VERIFY_SSL": "false",
         "FGT_GUEST_GROUPS": names["guest_group"], "FGT_MAC_GROUP": names["mac_group"],
         "FGT_MAIN_SSID": result.get("main_ssid", ""),
+        # Geração das permissões do token (o instalador pede para refazer quando a versão pede mais)
+        "FGT_PERMISSIONS": "2" if mode == 0 else "manual",
         "MAX_VALIDITY_DAYS": "365", "TZ": tz,
         "APP_USER": panel_user, "APP_PASSWORD_HASH": generate_password_hash(pw),
         "SECRET_KEY": secrets.token_hex(32), "COOKIE_SECURE": cookie_secure, "BIND": bind,

@@ -222,7 +222,7 @@ function renderSsids(q) {
   const MODE = {
     bridge: "modo bridge: os SSIDs novos usam a mesma VLAN dele",
     switch: `dentro do software switch "${info.switch}": os SSIDs novos entram nele`,
-    tunnel: "modo túnel, fora de software switch: um SSID novo ficaria sem rede",
+    own: "modo túnel: cada SSID novo ganha rede própria (faixa de IP, DHCP e internet copiada da política dele)",
   };
   $("#ssid-main-info").textContent = info.mode ? `SSID principal: ${info.name}, ${MODE[info.mode]}.` : "";
   const apName = Object.fromEntries(state.ssid.aps.map((a) => [a.id, a.name]));
@@ -246,7 +246,9 @@ function renderSsids(q) {
       );
     }
     tr.append(
-      cell(el("div", x.ssid, "strong"), x.main ? el("small", "SSID principal", "muted") : !x.managed ? el("small", "criado fora do painel", "muted") : null),
+      cell(el("div", x.ssid, "strong"), x.main ? el("small", "SSID principal", "muted")
+        : !x.managed ? el("small", "criado fora do painel", "muted")
+        : x.network ? el("small", `rede ${x.network}`, "muted mono") : null),
       cell(SSID_ACCESS[x.access] || x.access),
       cell(when),
       cell(aps),

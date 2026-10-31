@@ -9,6 +9,7 @@ Tudo fica no próprio FortiGate, que liga e desliga os SSIDs sozinho:
 
 O painel só altera SSIDs com o prefixo "aw-" (os que ele mesmo criou).
 """
+import ipaddress
 import os
 import re
 import shlex
@@ -21,6 +22,17 @@ WTP = "cmdb/wireless-controller/wtp"
 PROFILE = "cmdb/wireless-controller/wtp-profile"
 ONETIME = "cmdb/firewall.schedule/onetime"
 SWITCH = "cmdb/system/switch-interface"
+INTERFACE = "cmdb/system/interface"
+DHCP = "cmdb/system.dhcp/server"
+POLICY = "cmdb/firewall/policy"
+# Faixa de onde saem as redes próprias dos SSIDs novos (uma /24 livre para cada SSID)
+NETWORK_POOL = os.getenv("FGT_SSID_NETWORKS", "10.250.0.0/16")
+# Copiados da política de internet do SSID principal para a do SSID novo
+POLICY_FIELDS = (
+    "dstintf", "dstaddr", "service", "schedule", "nat", "utm-status", "inspection-mode", "ssl-ssh-profile",
+    "av-profile", "webfilter-profile", "dnsfilter-profile", "application-list", "ips-sensor",
+    "file-filter-profile", "emailfilter-profile", "logtraffic", "groups", "users",
+)
 
 PREFIX = "aw-"                 # nome interno dos SSIDs criados pelo painel (FortiOS: até 15 caracteres)
 OFF_SCHEDULE = "aw-desligado"  # agendamento já vencido: o SSID fica fora do ar
@@ -153,7 +165,7 @@ def main_info(fgt):
     if vap.get("local-bridging") == "enable":
         return {"name": main, "mode": "bridge", "switch": None}
     sw = _switch_of(fgt, main)
-    return {"name": main, "mode": "switch" if sw else "tunnel", "switch": sw["name"] if sw else None}
+    return {"name": main, "mode": "switch" if sw else "own", "switch": sw["name"] if sw else None}
 
 
 def _switch_of(fgt, vap):
@@ -176,9 +188,87 @@ def readiness(fgt):
     sw = _switch_of(fgt, main)
     if sw:
         return True, "", sw["name"]
-    return False, (f"O SSID principal '{main}' é uma rede própria (modo túnel, fora de um software switch). "
-                   "Para outro SSID usar a mesma rede, os dois precisam estar num software switch. "
-                   "Veja docs/FORTIGATE.md, \"SSIDs extras\"."), None
+    # Túnel fora de software switch: cada SSID novo ganha rede própria, com a política do principal como modelo
+    if not _internet_policy(fgt, main):
+        return False, (f"Não achei a política de firewall que dá internet ao SSID '{main}' (origem '{main}', ação "
+                       "aceitar). Ela é o modelo da política dos SSIDs novos."), None
+    return True, "", None
+
+
+# ------------------------------------------------------------------ rede própria (SSID em túnel)
+
+def _internet_policy(fgt, vap):
+    """Política que dá internet ao SSID: origem = o SSID, ação aceitar."""
+    for p in fgt.get(POLICY):
+        if vap in _names(p.get("srcintf")) and p.get("action") == "accept" and _names(p.get("dstintf")):
+            return p
+    return None
+
+
+def _networks_in_use(fgt):
+    used = []
+    for i in fgt.get(INTERFACE):
+        parts = str(i.get("ip") or "").split()
+        if len(parts) == 2 and parts[0] != "0.0.0.0":
+            used.append(ipaddress.ip_interface(f"{parts[0]}/{parts[1]}").network)
+    for d in fgt.get(DHCP):
+        for r in d.get("ip-range") or []:
+            if r.get("start-ip"):
+                used.append(ipaddress.ip_network(f"{r['start-ip']}/{d.get('netmask', '255.255.255.0')}", strict=False))
+    return used
+
+
+def _free_network(fgt):
+    used = _networks_in_use(fgt)
+    for net in ipaddress.ip_network(NETWORK_POOL).subnets(new_prefix=24):
+        if not any(net.overlaps(u) for u in used):
+            return net
+    raise SSIDError(f"Não há faixa de IP livre em {NETWORK_POOL} para o SSID novo.")
+
+
+def _network_of(interfaces, name):
+    parts = str((interfaces.get(name) or {}).get("ip") or "").split()
+    if len(parts) == 2 and parts[0] != "0.0.0.0":
+        return str(ipaddress.ip_interface(f"{parts[0]}/{parts[1]}").network)
+    return None
+
+
+def _create_own_network(fgt, name, access, undo):
+    """Faixa de IP, DHCP e política de internet do SSID novo (modelo: a política do principal)."""
+    template = _internet_policy(fgt, main_vap_name())
+    net = _free_network(fgt)
+    gw = net[1]
+    fgt.update(INTERFACE, name, {"ip": f"{gw} {net.netmask}", "allowaccess": "ping", "role": "lan"})
+
+    r = fgt.create(DHCP, {"status": "enable", "interface": name, "default-gateway": str(gw),
+                          "netmask": str(net.netmask), "dns-service": "default", "lease-time": 28800,
+                          "ip-range": [{"id": 1, "start-ip": str(net[10]), "end-ip": str(net[250])}]})
+    dhcp_id = r.get("mkey") or next((d["id"] for d in fgt.get(DHCP) if d.get("interface") == name), None)
+    if dhcp_id is not None:
+        undo.append(lambda: fgt.remove(DHCP, dhcp_id))
+
+    body = {k: template[k] for k in POLICY_FIELDS if k in template}
+    if access != "same":   # sem captive portal: grupos na política bloqueariam o acesso
+        body.pop("groups", None)
+        body.pop("users", None)
+    body.update({"name": name, "srcintf": [{"name": name}], "srcaddr": [{"name": "all"}], "action": "accept",
+                 "comments": "Criada pelo painel Acesso Wi-Fi (SSID extra)"})
+    r = fgt.create(POLICY, body)
+    pid = r.get("mkey") or next((p["policyid"] for p in fgt.get(POLICY) if _first(p.get("name")) == name), None)
+    if pid is None:
+        raise SSIDError("A política de internet do SSID novo não foi criada.")
+    undo.append(lambda: fgt.remove(POLICY, pid))
+    fgt.move_policy(pid, before=template["policyid"])   # acima da do principal (antes de um eventual "negar tudo")
+    return str(net)
+
+
+def _remove_own_network(fgt, name):
+    for p in fgt.get(POLICY):
+        if _names(p.get("srcintf")) == [name]:
+            fgt.remove(POLICY, p["policyid"])
+    for d in fgt.get(DHCP):
+        if d.get("interface") == name:
+            fgt.remove(DHCP, d["id"])
 
 
 # ------------------------------------------------------------------ FortiAPs
@@ -319,6 +409,7 @@ def list_ssids(fgt):
     aps, where = broadcast_map(fgt)
     schedules = {s["name"]: s for s in fgt.get(ONETIME)}
     main, now = main_vap_name(), datetime.now()
+    interfaces = {i.get("name"): i for i in fgt.get(INTERFACE)}
     ssids = []
     for v in fgt.get(VAP):
         ssids.append({
@@ -327,6 +418,7 @@ def list_ssids(fgt):
             "main": v["name"] == main,
             "managed": v["name"].startswith(PREFIX),
             "access": access_of(v),
+            "network": _network_of(interfaces, v["name"]),
             "aps": where.get(v["name"], []),
             **_describe_schedule(v, schedules, now),
         })
@@ -379,6 +471,9 @@ def create_ssid(fgt, data):
                      "schedule": _schedule_value(fgt, schedule)})
         fgt.create(VAP, body)
         undo.append(lambda: fgt.remove(VAP, name))
+        mode = main_info(fgt)["mode"]
+        if mode == "own":
+            _create_own_network(fgt, name, data.get("security", "same"), undo)
         if switch:
             sw = fgt.get_one(SWITCH, switch)
             members = _names(sw.get("member"), "interface-name")
@@ -411,6 +506,12 @@ def update_ssid(fgt, name, data):
         body["ssid"] = _valid_ssid_text(fgt, data["ssid"], ignore=name)
     if "security" in data:
         body.update(_security_body(fgt.get_one(VAP, main_vap_name()) or {}, data, current=vap))
+        ours = next((p for p in fgt.get(POLICY) if _names(p.get("srcintf")) == [name]), None)
+        if ours:
+            template = _internet_policy(fgt, main_vap_name()) or {}
+            same = data.get("security") == "same"
+            fgt.update(POLICY, ours["policyid"], {"groups": template.get("groups", []) if same else [],
+                                                  "users": template.get("users", []) if same else []})
     if "mode" in data:
         old = _first(vap.get("schedule"))
         new_schedule = _schedule_for(fgt, name, data)
@@ -426,6 +527,7 @@ def update_ssid(fgt, name, data):
 def delete_ssid(fgt, name):
     vap = _managed(fgt, name)
     set_aps(fgt, name, [])   # tira de todos os APs antes de apagar
+    _remove_own_network(fgt, name)
     sw = _switch_of(fgt, name)
     if sw:
         members = [m for m in _names(sw.get("member"), "interface-name") if m != name]
