@@ -50,6 +50,7 @@ O painel **não usa usuário e senha** de admin do FortiGate. Ele usa a **API RE
 | Para | Comando |
 |---|---|
 | Ver a situação do painel | `acessowifi status` |
+| Descobrir por que o painel não sobe | `acessowifi diagnostico` |
 | Atualizar o painel | `git pull && ./deploy/install.sh` (mantém a configuração) |
 | Mudar FortiGate, token, senha ou acesso | `./deploy/install.sh` e responda **sim** para refazer a configuração |
 | Testar a conexão com o FortiGate | `acessowifi testar --escrita` |

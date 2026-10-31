@@ -238,10 +238,9 @@ u.build_opener(u.ProxyHandler({})).open(sys.argv[1], timeout=2)' "http://127.0.0
   if [ "$APP_UP" = 1 ]; then
     info "Painel respondendo na porta interna $APP_PORT."
   else
-    info "O painel não respondeu. Últimas linhas do log:"
-    journalctl -u acessowifi -n 25 --no-pager -o cat 2>/dev/null | tail -15 | sed 's/^/      /' || true
-    info "Status: $(systemctl is-active acessowifi 2>/dev/null || true)"
-    info "Mande essa saída para análise ou veja: journalctl -u acessowifi -n 50"
+    info "O painel não respondeu. Diagnóstico:"
+    /usr/local/bin/acessowifi diagnostico 2>&1 | sed 's/^/      /' || true
+    info "Mande essa saída para análise. Para repetir o diagnóstico: acessowifi diagnostico"
     exit 1
   fi
 else

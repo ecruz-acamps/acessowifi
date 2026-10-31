@@ -24,6 +24,25 @@ case "${1:-ajuda}" in
     ls -l "$APP_DIR/.env" | awk '{print "permissão do .env           " $1, $3 ":" $4}'
     systemctl status acessowifi --no-pager -n 5 2>/dev/null | tail -6
     ;;
+  diagnostico)
+    echo "== Carregando o painel como o usuário do serviço"
+    if (cd "$APP_DIR" && runuser -u "$SVC_USER" -- "$APP_DIR/.venv/bin/python" -c "import app" 2>&1 | tail -6); then :; fi
+    if command -v systemd-run >/dev/null; then
+      echo "== Carregando o painel com as mesmas restrições do serviço (systemd)"
+      systemd-run --quiet --wait --pipe --collect \
+        -p User="$SVC_USER" -p Group="$SVC_USER" -p WorkingDirectory="$APP_DIR" \
+        -p EnvironmentFile="$APP_DIR/.env" -p NoNewPrivileges=true -p ProtectSystem=strict \
+        -p ProtectHome=true -p PrivateTmp=true \
+        "$APP_DIR/.venv/bin/python" -c "import app; print('OK: o painel carrega normalmente')" 2>&1 | tail -6
+    fi
+    echo "== Erros no log do serviço"
+    journalctl -u acessowifi -n 300 --no-pager -o cat 2>/dev/null \
+      | grep -E "Error|Exception|error:|denied|No such|not found" | grep -v HaltServer | sort -u | tail -8
+    echo "== Portas"
+    BIND=$(sed -n "s/^BIND='\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "$APP_DIR/.env")
+    echo "porta interna configurada: ${BIND:-?}"
+    ss -ltnp 2>/dev/null | grep -E ":(${BIND##*:}|80|443|8443) " || echo "(nada escutando nessas portas)"
+    ;;
   log)       journalctl -u acessowifi -f ;;
   reiniciar) systemctl restart acessowifi && echo "Painel reiniciado." ;;
   *)
@@ -32,6 +51,7 @@ case "${1:-ajuda}" in
     echo "  testar      testa a conexão com o FortiGate (testar --escrita: teste completo)"
     echo "  log         acompanha o log do painel"
     echo "  reiniciar   reinicia o painel"
+    echo "  diagnostico mostra por que o painel não sobe"
     echo "  limpar      remove agora as liberações de MAC vencidas"
     ;;
 esac
