@@ -3,6 +3,9 @@
 Cada versão nova aumenta o número depois do ponto (1.0, 1.1, 1.2...). O botão **Atualizações** do painel
 mostra as versões disponíveis e o que cada uma traz, a partir deste arquivo.
 
+## 1.9 — 2026-10-31
+- Servidor: some do log o erro "Control server error: Read-only file system" que as versões novas do gunicorn mostravam a cada inicialização. O painel já funcionava normalmente; era só um aviso.
+
 ## 1.8 — 2026-10-31
 - App (PWA): a tela "Sem conexão" só aparece quando o aparelho está realmente sem rede. Antes ela aparecia também quando o servidor recusava a conexão por causa do certificado (por exemplo, logo depois da troca para o certificado próprio do servidor), escondendo o aviso do navegador e impedindo até de abrir a página `/certificado`.
 
