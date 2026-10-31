@@ -77,12 +77,53 @@ fi
 grep -q "^BIND=.*127.0.0.1" "$APP_DIR/.env" && USE_NGINX=1 || USE_NGINX=0
 
 # ---------------------------------------------------------------- nginx + HTTPS
+port_owner() {  # nome do programa escutando na porta TCP $1 (vazio se livre)
+  ss -ltnpH "sport = :$1" 2>/dev/null | grep -o 'users:(("[^"]*' | head -1 | cut -d'"' -f2 || true
+}
+env_set() {  # env_set CHAVE valor: grava/atualiza no .env
+  if grep -q "^$1=" "$APP_DIR/.env"; then sed -i "s|^$1=.*|$1='$2'|" "$APP_DIR/.env"
+  else echo "$1='$2'" >> "$APP_DIR/.env"; fi
+}
+without_nginx() {  # passa o painel a escutar direto na rede, sem HTTPS
+  local port=${1:-8080}
+  env_set BIND "0.0.0.0:$port"
+  env_set COOKIE_SECURE false
+  rm -f /etc/nginx/sites-enabled/acessowifi /etc/nginx/conf.d/acessowifi.conf
+  USE_NGINX=0
+  info "Painel configurado sem nginx, direto na porta $port (HTTP, use só na rede interna)."
+}
+
+HTTPS_PORT=$(sed -n "s/^HTTPS_PORT='\{0,1\}\([0-9]*\).*/\1/p" "$APP_DIR/.env")
+HTTPS_PORT=${HTTPS_PORT:-443}
 if [ "$USE_NGINX" = 1 ]; then
   say "Configurando nginx com HTTPS"
   if ! command -v nginx >/dev/null; then
     if command -v apt-get >/dev/null; then apt-get install -y -qq nginx openssl
     else echo "Instale o nginx e rode de novo (ou configure manualmente com deploy/nginx.conf)."; exit 1; fi
   fi
+
+  # Porta HTTPS ocupada por outro programa (Apache, outro painel...)?
+  OWNER=$(port_owner "$HTTPS_PORT")
+  if [ -n "$OWNER" ] && [ "$OWNER" != nginx ]; then
+    info "A porta $HTTPS_PORT já está em uso por '$OWNER'."
+    while :; do
+      read -r -p "   Porta HTTPS para o painel [8443]: " NEW_PORT
+      NEW_PORT=${NEW_PORT:-8443}
+      OWNER=$(port_owner "$NEW_PORT")
+      [[ $NEW_PORT =~ ^[0-9]+$ ]] && { [ -z "$OWNER" ] || [ "$OWNER" = nginx ]; } && break
+      info "Porta inválida ou em uso${OWNER:+ por '$OWNER'}."
+    done
+    HTTPS_PORT=$NEW_PORT
+  fi
+  env_set HTTPS_PORT "$HTTPS_PORT"
+
+  # O site padrão do nginx escuta na porta 80; se outro programa já usa a 80, o nginx não sobe
+  OWNER80=$(port_owner 80)
+  if [ -n "$OWNER80" ] && [ "$OWNER80" != nginx ] && [ -L /etc/nginx/sites-enabled/default ]; then
+    rm -f /etc/nginx/sites-enabled/default
+    info "A porta 80 é usada por '$OWNER80': site padrão do nginx desativado (o arquivo continua em sites-available)."
+  fi
+
   mkdir -p /etc/ssl/acessowifi
   if [ ! -f /etc/ssl/acessowifi/cert.pem ]; then
     SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
@@ -98,9 +139,33 @@ if [ "$USE_NGINX" = 1 ]; then
   else
     NGINX_CONF=/etc/nginx/conf.d/acessowifi.conf
   fi
-  [ -f "$NGINX_CONF" ] || sed 's/server_name .*;/server_name _;/' "$APP_DIR/deploy/nginx.conf" > "$NGINX_CONF"
-  nginx -t -q
-  [ "$HAS_SYSTEMD" = 1 ] && systemctl enable -q nginx && systemctl reload-or-restart nginx
+  # O arquivo é do painel: sempre regenerado, para refletir a porta escolhida
+  sed -e 's/server_name .*;/server_name _;/' -e "s/listen 443 ssl;/listen $HTTPS_PORT ssl;/" \
+    "$APP_DIR/deploy/nginx.conf" > "$NGINX_CONF"
+
+  NGINX_OK=1
+  if ! nginx -t 2>/tmp/acessowifi-nginx.log; then
+    NGINX_OK=0
+  elif [ "$HAS_SYSTEMD" = 1 ]; then
+    systemctl enable -q nginx
+    systemctl reload-or-restart nginx 2>>/tmp/acessowifi-nginx.log || NGINX_OK=0
+  fi
+  if [ "$NGINX_OK" = 0 ]; then
+    info "O nginx não iniciou. Motivo:"
+    { cat /tmp/acessowifi-nginx.log; [ "$HAS_SYSTEMD" = 1 ] && journalctl -u nginx -n 15 --no-pager -o cat 2>/dev/null; } \
+      | grep -iE "emerg|error|fail|bind|address" | sort -u | sed 's/^/      /' | tail -10 || true
+    info "Portas em uso: $(ss -ltnH 2>/dev/null | awk '{print $4}' | sed 's/.*://' | sort -un | tr '\n' ' ')"
+    info "Para voltar ao HTTPS depois: corrija a causa e rode o instalador respondendo sim para refazer a configuração."
+    if yes_no "Continuar sem nginx (painel em HTTP na porta 8080)?" S; then
+      without_nginx 8080
+    else
+      echo "Corrija o problema acima e rode o instalador de novo (responda não para refazer a configuração)."
+      exit 1
+    fi
+  else
+    info "nginx rodando com HTTPS na porta $HTTPS_PORT."
+  fi
+  rm -f /tmp/acessowifi-nginx.log
 fi
 
 # ---------------------------------------------------------------- serviços
@@ -128,7 +193,7 @@ else
 fi
 
 # ---------------------------------------------------------------- firewall do servidor
-PANEL_PORT=$([ "$USE_NGINX" = 1 ] && echo 443 || sed -n "s/^BIND='\{0,1\}[^:]*:\([0-9]*\).*/\1/p" "$APP_DIR/.env")
+PANEL_PORT=$([ "$USE_NGINX" = 1 ] && echo "$HTTPS_PORT" || sed -n "s/^BIND='\{0,1\}[^:]*:\([0-9]*\).*/\1/p" "$APP_DIR/.env")
 if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
   say "Firewall do servidor (ufw)"
   ufw allow "$PANEL_PORT/tcp" >/dev/null && info "Porta $PANEL_PORT liberada no ufw."
@@ -138,7 +203,7 @@ fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 say "Pronto!"
 if [ "$USE_NGINX" = 1 ]; then
-  info "Painel:  https://${IP:-IP_DO_SERVIDOR}/   (o navegador vai avisar do certificado autoassinado)"
+  info "Painel:  https://${IP:-IP_DO_SERVIDOR}$([ "$HTTPS_PORT" = 443 ] || echo ":$HTTPS_PORT")/   (o navegador vai avisar do certificado autoassinado)"
 else
   info "Painel:  http://${IP:-IP_DO_SERVIDOR}:$PANEL_PORT/"
 fi

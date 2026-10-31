@@ -54,6 +54,8 @@ O painel **não usa usuário e senha** de admin do FortiGate. Ele usa a **API RE
 
 Se algo não funcionar, veja **[Problemas comuns](docs/FORTIGATE.md#problemas-comuns)**.
 
+**Se o nginx não iniciar:** normalmente é porta ocupada por outro programa (Apache, outro painel). O instalador detecta isso: se a 443 estiver em uso, oferece outra porta (ex.: `https://IP:8443`); se a 80 estiver em uso, desativa o site padrão do nginx. Se mesmo assim falhar, ele mostra o motivo e oferece seguir sem nginx, com o painel em HTTP na porta 8080. Para ver o motivo à mão: `journalctl -u nginx -n 20` e `ss -ltnp | grep -E ':(80|443) '`.
+
 Não publique o painel na internet. Para usar um certificado próprio no lugar do autoassinado, substitua `/etc/ssl/acessowifi/cert.pem` e `key.pem` e rode `systemctl reload nginx`.
 
 ## Como funciona
