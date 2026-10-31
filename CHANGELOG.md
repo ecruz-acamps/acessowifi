@@ -3,6 +3,11 @@
 Cada versão nova aumenta o número depois do ponto (1.0, 1.1, 1.2...). O botão **Atualizações** do painel
 mostra as versões disponíveis e o que cada uma traz, a partir deste arquivo.
 
+## 1.3 — 2026-10-31
+- Aba SSIDs: o botão "Novo SSID" fica sempre visível. Quando falta algo, ele aparece desativado e o aviso amarelo explica o quê.
+- Aba SSIDs: mostra como o SSID principal está montado (bridge, software switch ou túnel) e se os SSIDs novos vão ter rede.
+- Aba SSIDs: se o SSID principal não foi definido na instalação, dá para escolher na própria aba.
+
 ## 1.2 — 2026-10-31
 - Aba SSIDs: corrigido o "Erro 500" ao abrir a aba. O FortiOS 7.4 devolve alguns campos (como o agendamento do SSID) em formato de lista, e o painel só entendia texto. Agora ele aceita os dois e grava no mesmo formato que o FortiGate usa.
 - Erros inesperados aparecem na tela com o motivo, e não só "Erro 500"; o detalhe completo vai para o log (`acessowifi log`).

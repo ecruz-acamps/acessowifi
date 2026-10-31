@@ -152,6 +152,13 @@ class MockFortiGate:
             "cmdb/system/switch-interface": [
                 {"name": "wifi-sw", "type": "switch", "member": [{"interface-name": "Acampamento"}]}],
         }
+        # MOCK_SSID_MODE imita como o SSID principal está montado: switch (padrão), tunnel ou bridge
+        import os
+        mode = os.getenv("MOCK_SSID_MODE", "switch")
+        if mode in ("tunnel", "bridge"):
+            self._tables["cmdb/system/switch-interface"][0]["member"] = []
+        if mode == "bridge":
+            self._tables["cmdb/wireless-controller/vap"][0]["local-bridging"] = "enable"
 
     def _table(self, path):
         if not hasattr(self, "_tables"):

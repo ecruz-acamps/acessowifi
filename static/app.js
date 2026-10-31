@@ -208,8 +208,23 @@ function renderSsids(q) {
   const body = $("#ssids-body");
   body.replaceChildren();
   const notice = state.ssidError || (!state.ssid.ready && state.ssid.reason);
-  $("#ssid-notice").textContent = notice || "";
+  $("#ssid-notice-text").textContent = notice || "";
   $("#ssid-notice").hidden = !notice;
+
+  // Escolha do SSID principal na própria aba (quando a instalação não definiu)
+  const info = state.ssid.main_info || {};
+  const choose = !state.ssidError && state.ssid.can_choose_main && !info.mode;
+  $("#ssid-main-choose").hidden = !choose;
+  if (choose && !$("#ssid-main-select").options.length) {
+    $("#ssid-main-select").replaceChildren(...state.ssid.ssids.filter((x) => !x.managed)
+      .map((x) => new Option(x.ssid === x.name ? x.ssid : `${x.ssid} (${x.name})`, x.name)));
+  }
+  const MODE = {
+    bridge: "modo bridge: os SSIDs novos usam a mesma VLAN dele",
+    switch: `dentro do software switch "${info.switch}": os SSIDs novos entram nele`,
+    tunnel: "modo túnel, fora de software switch: um SSID novo ficaria sem rede",
+  };
+  $("#ssid-main-info").textContent = info.mode ? `SSID principal: ${info.name}, ${MODE[info.mode]}.` : "";
   const apName = Object.fromEntries(state.ssid.aps.map((a) => [a.id, a.name]));
   const rows = state.ssid.ssids.filter((x) => matches(x, q));
   if (!rows.length) return emptyRow(body, 6, "Nenhum SSID.");
@@ -248,7 +263,9 @@ function render() {
 
   const isUsers = state.tab === "users";
   $("#new-user").hidden = !isUsers || !state.groups.length;
-  $("#new-ssid").hidden = state.tab !== "ssids" || !state.ssid.ready || !!state.ssidError;
+  $("#new-ssid").hidden = state.tab !== "ssids";
+  $("#new-ssid").disabled = !state.ssid.ready || !!state.ssidError;
+  $("#new-ssid").title = $("#new-ssid").disabled ? "Veja o aviso amarelo: o que falta para criar SSIDs" : "";
   $("#show-expired-wrap").hidden = !isUsers;
 
   $("#stat-online").textContent = state.clients.filter((c) => c.username).length;
@@ -537,6 +554,15 @@ async function removeSsid(x) {
 }
 
 $("#new-ssid").addEventListener("click", () => openSsidDialog());
+$("#ssid-main-save").addEventListener("click", async () => {
+  try {
+    await api("/api/ssids-main", { method: "PUT", body: JSON.stringify({ name: $("#ssid-main-select").value }) });
+    $("#ssid-main-select").replaceChildren();
+    await load();
+  } catch (e) {
+    $("#ssid-notice-text").textContent = e.message;
+  }
+});
 
 // --- Atualizações do painel ---
 

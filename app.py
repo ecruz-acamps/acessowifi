@@ -742,6 +742,15 @@ def api_ssids():
     return jsonify(ssids.list_ssids(fgt))
 
 
+@app.put("/api/ssids-main")
+@login_required
+def api_set_main_ssid():
+    name = str((request.get_json(silent=True) or {}).get("name") or "")
+    ssids.set_main_vap(fgt, name)
+    app.logger.info("%s definiu o SSID principal: %s", session["user"], name)
+    return jsonify(ok=True)
+
+
 @app.post("/api/ssids")
 @login_required
 def api_create_ssid():

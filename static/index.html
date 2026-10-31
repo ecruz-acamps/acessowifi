@@ -71,7 +71,14 @@
     </div>
 
     <div data-panel="ssids" hidden>
-      <p id="ssid-notice" class="warning" hidden></p>
+      <p id="ssid-main-info" class="muted small-note"></p>
+      <div id="ssid-notice" class="warning" hidden>
+        <p id="ssid-notice-text"></p>
+        <div id="ssid-main-choose" class="inline-form" hidden>
+          <select id="ssid-main-select" aria-label="SSID principal"></select>
+          <button type="button" id="ssid-main-save" class="small">Usar como principal</button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>SSID</th><th>Acesso</th><th>Quando</th><th>FortiAPs</th><th>Status</th><th></th></tr></thead>

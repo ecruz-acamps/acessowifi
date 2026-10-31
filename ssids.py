@@ -117,8 +117,43 @@ def _schedule_value(fgt, name):
     return [{"name": name}] if isinstance(main.get("schedule"), list) else name
 
 
+MAIN_FILE = os.path.join(os.getenv("ACESSOWIFI_CTL", "/var/lib/acessowifi-ctl"), "main-ssid")
+
+
 def main_vap_name():
-    return os.getenv("FGT_MAIN_SSID", "").strip()
+    """SSID principal: do .env (instalador) ou escolhido na própria aba SSIDs."""
+    name = os.getenv("FGT_MAIN_SSID", "").strip()
+    if not name:
+        try:
+            with open(MAIN_FILE) as f:
+                name = f.read().strip()
+        except OSError:
+            pass
+    return name
+
+
+def set_main_vap(fgt, name):
+    if not fgt.get_one(VAP, name):
+        raise SSIDError("SSID não encontrado.")
+    if os.getenv("FGT_MAIN_SSID", "").strip():
+        raise SSIDError("O SSID principal foi definido na instalação; para trocar, refaça a configuração.")
+    try:
+        with open(MAIN_FILE, "w") as f:
+            f.write(name)
+    except OSError:
+        raise SSIDError("Não consegui salvar a escolha no servidor. Rode ./deploy/install.sh.")
+
+
+def main_info(fgt):
+    """Como está o SSID principal: nome, modo (bridge, switch ou túnel) e software switch."""
+    main = main_vap_name()
+    vap = fgt.get_one(VAP, main) if main else None
+    if not vap:
+        return {"name": main, "mode": None, "switch": None}
+    if vap.get("local-bridging") == "enable":
+        return {"name": main, "mode": "bridge", "switch": None}
+    sw = _switch_of(fgt, main)
+    return {"name": main, "mode": "switch" if sw else "tunnel", "switch": sw["name"] if sw else None}
 
 
 def _switch_of(fgt, vap):
@@ -132,8 +167,7 @@ def readiness(fgt):
     """O SSID novo pode ficar na mesma rede do principal? Devolve (pronto, motivo, switch)."""
     main = main_vap_name()
     if not main:
-        return False, ("O SSID principal não está configurado. Rode ./deploy/install.sh e responda sim "
-                       "para refazer a configuração."), None
+        return False, "Escolha abaixo qual é o SSID principal (o modelo e a rede dos SSIDs novos).", None
     vap = fgt.get_one(VAP, main)
     if not vap:
         return False, f"O SSID principal '{main}' não existe mais no FortiGate.", None
@@ -297,7 +331,8 @@ def list_ssids(fgt):
             **_describe_schedule(v, schedules, now),
         })
     ssids.sort(key=lambda s: (not s["main"], not s["managed"], s["ssid"].lower()))
-    return {"ready": ready, "reason": reason, "main": main, "aps": aps, "ssids": ssids}
+    return {"ready": ready, "reason": reason, "main": main, "main_info": main_info(fgt),
+            "can_choose_main": not os.getenv("FGT_MAIN_SSID", "").strip(), "aps": aps, "ssids": ssids}
 
 
 def _valid_ssid_text(fgt, text, ignore=None):
