@@ -259,7 +259,7 @@ Ele testa a conexão, as permissões e os grupos. Também cria e apaga um usuár
 | `Falha ao conectar` / timeout | HTTPS de administração desligado na interface, porta errada ou rota | Passo 6; teste com `curl -k https://IP_DO_FORTIGATE` a partir do servidor |
 | `grupo guest não encontrado` | Grupo não criado, com outro nome ou de tipo diferente | Passo 1 (Type: Guest) |
 | `Grupo de endereços ... não existe` | Passo 2 não feito | Passo 2 |
-| Erro ao gravar a validade no teste de escrita | Formato de data diferente nesta versão do FortiOS | Mande a saída do `check-fortigate --escrita` para ajuste |
+| "não gravou a validade em nenhum formato conhecido" | O FortiGate não aceitou a data em nenhum dos formatos que o painel tenta. Desde a versão 1.1, o painel detecta o formato sozinho (no 7.4.13 o formato antigo virava `0`) | Mande a mensagem completa, que lista o que o FortiGate gravou em cada tentativa |
 | Conta cadastrada não consegue entrar no portal | Grupo guest fora dos *User Groups* do SSID | Passo 3 |
 | Conta vencida continua navegando | Sessão ainda ativa | Passo 5 (hard timeout) |
 | Aparelho "Permitir sempre" continua caindo no portal | Lista de exceção fora do SSID; MAC aleatório mudou | Passo 3; veja o aviso de MAC aleatório no painel |

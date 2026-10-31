@@ -127,6 +127,95 @@ def _names(items):
     return [i.get("name") for i in items or [] if i.get("name")]
 
 
+# --- Validade das contas guest ---
+# O formato do campo "expiration" das contas guest não é documentado e mudou entre versões
+# (no FortiOS 7.4.13, "AAAA/MM/DD HH:MM:SS" foi gravado como 0). O painel grava, relê e, se o
+# FortiGate não guardou a data certa, tenta o próximo formato. O que funcionar fica salvo em
+# CTL_DIR/expiration-format e é usado direto nas próximas vezes.
+EXP_FORMATS = {
+    "data": lambda dt: dt.strftime("%Y/%m/%d %H:%M:%S"),
+    "data-iso": lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S"),
+    "epoch": lambda dt: int(dt.timestamp()),
+    "epoch-texto": lambda dt: str(int(dt.timestamp())),
+    "hora-data": lambda dt: dt.strftime("%H:%M:%S %Y/%m/%d"),
+    "data-minutos": lambda dt: dt.strftime("%Y/%m/%d %H:%M"),
+}
+_exp_format = {"name": None}
+
+
+def parse_expiration(value):
+    """Lê a validade em qualquer formato que o FortiGate devolva (texto ou segundos desde 1970)."""
+    if value in (None, "", 0, "0"):
+        return None
+    text = str(value).strip()
+    if text.isdigit():
+        return datetime.fromtimestamp(int(text)) if int(text) > 10 ** 9 else None
+    for fmt in ("%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%H:%M:%S %Y/%m/%d", "%Y/%m/%d %H:%M",
+                "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def _known_exp_format():
+    if not _exp_format["name"]:
+        try:
+            name = (CTL_DIR / "expiration-format").read_text().strip()
+            _exp_format["name"] = name if name in EXP_FORMATS else None
+        except OSError:
+            pass
+    return _exp_format["name"] or "data"
+
+
+def _remember_exp_format(name):
+    _exp_format["name"] = name
+    try:
+        (CTL_DIR / "expiration-format").write_text(name)
+    except OSError:
+        pass   # sem a pasta (ex.: testes), vale só enquanto o painel estiver rodando
+
+
+def _guest_entry(group, guest_id):
+    for g in fgt.user_groups():
+        if g["name"] == group:
+            for gu in g.get("guest") or []:
+                if gu.get("id") == guest_id:
+                    return gu
+    return None
+
+
+def _expiration_ok(group, guest_id, when):
+    stored = (_guest_entry(group, guest_id) or {}).get("expiration")
+    got = parse_expiration(stored)
+    return bool(got and abs((got - when).total_seconds()) <= 90), stored
+
+
+def set_expiration(group, guest_id, when, sent=None):
+    """Garante que a conta tenha a validade 'when'. 'sent' = formato já enviado no cadastro."""
+    tried = []
+    if sent:
+        ok, stored = _expiration_ok(group, guest_id, when)
+        if ok:
+            _remember_exp_format(sent)
+            return sent
+        tried.append(f"{sent} -> '{stored}'")
+    for name in [_known_exp_format()] + [n for n in EXP_FORMATS if n != _known_exp_format()]:
+        if name == sent:
+            continue
+        fgt.update_guest(group, guest_id, {"expiration": EXP_FORMATS[name](when)})
+        ok, stored = _expiration_ok(group, guest_id, when)
+        if ok:
+            _remember_exp_format(name)
+            if tried:
+                app.logger.info("Formato de validade do FortiGate detectado: %s", name)
+            return name
+        tried.append(f"{name} -> '{stored}'")
+    raise FortiGateError("O FortiGate não gravou a validade em nenhum formato conhecido ("
+                         + "; ".join(tried) + "). Mande esta mensagem para ajuste do painel.")
+
+
 def _parse_fgt_date(value):
     try:
         return datetime.strptime(value, FGT_DATE)
@@ -169,7 +258,7 @@ def registered_users(groups=None):
 
     for g in groups:
         for gu in g.get("guest") or []:
-            exp = _parse_fgt_date(gu.get("expiration"))
+            exp = parse_expiration(gu.get("expiration"))
             users.append({
                 "id": gu.get("id"),
                 "username": gu.get("user-id"),
@@ -351,6 +440,11 @@ def _text(data, field, max_len=64):
 
 
 def _expiration(data):
+    """Validade como texto no formato do painel (usado nos comentários dos endereços MAC)."""
+    return _expiration_dt(data).strftime(FGT_DATE)
+
+
+def _expiration_dt(data):
     try:
         exp = datetime.strptime(str(data.get("expiration", "")), "%Y-%m-%dT%H:%M")
     except ValueError:
@@ -359,7 +453,7 @@ def _expiration(data):
         raise BadRequest("A validade precisa ser no futuro.")
     if exp > datetime.now() + timedelta(days=MAX_VALIDITY_DAYS):
         raise BadRequest(f"A validade máxima é de {MAX_VALIDITY_DAYS} dias.")
-    return exp.strftime(FGT_DATE)
+    return exp
 
 
 def _password(data):
@@ -423,6 +517,8 @@ def api_create_user():
         raise BadRequest(f"Já existe um usuário '{username}'.")
 
     password = _password(data)
+    when = _expiration_dt(data)
+    fmt = _known_exp_format()
     guest = {
         "user-id": username,
         "password": password,
@@ -430,14 +526,23 @@ def api_create_user():
         "email": _text(data, "email"),
         "mobile-phone": _text(data, "phone"),
         "company": _text(data, "company"),
-        "expiration": _expiration(data),
+        "expiration": EXP_FORMATS[fmt](when),
         "sponsor": session["user"],
     }
     fgt.add_guest(group, guest)
+    created = next((gu for g in fgt.user_groups() if g["name"] == group
+                    for gu in g.get("guest") or [] if gu.get("user-id") == username), None)
+    if not created:
+        raise FortiGateError("A conta foi enviada ao FortiGate, mas não apareceu no grupo.")
+    try:
+        set_expiration(group, created["id"], when, sent=fmt)
+    except FortiGateError:
+        fgt.delete_guest(group, created["id"])   # não deixa conta sem validade para trás
+        raise
     app.logger.info("%s cadastrou %s no grupo %s (válido até %s)",
-                    session["user"], username, group, guest["expiration"])
+                    session["user"], username, group, when.strftime(FGT_DATE))
     # A senha só é devolvida aqui, uma vez, para ser repassada à pessoa
-    return jsonify(username=username, password=password, expiration=guest["expiration"]), 201
+    return jsonify(username=username, password=password, expiration=when.strftime(FGT_DATE)), 201
 
 
 @app.put("/api/users/<group>/<int:guest_id>")
@@ -452,15 +557,18 @@ def api_update_user(group, guest_id):
     for field, key in (("name", "name"), ("email", "email"), ("phone", "mobile-phone"), ("company", "company")):
         if field in data:
             fields[key] = _text(data, field)
-    if "expiration" in data:
-        fields["expiration"] = _expiration(data)
+    when = _expiration_dt(data) if "expiration" in data else None
     new_password = None
     if data.get("reset_password"):
         new_password = fields["password"] = _password(data)
-    if not fields:
+    if not fields and not when:
         raise BadRequest("Nada para alterar.")
 
-    fgt.update_guest(group, guest_id, fields)
+    if fields:
+        fgt.update_guest(group, guest_id, fields)
+    if when:
+        set_expiration(group, guest_id, when)
+        fields["expiration"] = when
     app.logger.info("%s alterou %s (%s)", session["user"], guest.get("user-id"),
                     ", ".join(k for k in fields if k != "password") + (" + senha" if new_password else ""))
     return jsonify(username=guest.get("user-id"), password=new_password)
@@ -700,17 +808,20 @@ def check_fortigate_command(escrita):
 
     if escrita and has_guest:
         group = managed_groups(groups)[0]
-        exp = (datetime.now() + timedelta(hours=1)).strftime(FGT_DATE)
+        when = (datetime.now() + timedelta(hours=1)).replace(microsecond=0)
 
         def guest_roundtrip():
+            # Sem validade primeiro: mostra como o próprio FortiGate preenche o campo
             fgt.add_guest(group, {"user-id": "acessowifi.teste", "password": generate_password(),
-                                  "name": "Teste do painel", "expiration": exp})
+                                  "name": "Teste do painel"})
             saved = next(gu for g in fgt.user_groups() if g["name"] == group
                          for gu in g.get("guest") or [] if gu.get("user-id") == "acessowifi.teste")
-            fgt.delete_guest(group, saved["id"])
-            if saved.get("expiration") != exp:
-                raise FortiGateError(f"validade gravada como '{saved.get('expiration')}', esperado '{exp}'")
-            return f"criado e apagado em {group}, validade gravada corretamente"
+            native = saved.get("expiration")
+            try:
+                fmt = set_expiration(group, saved["id"], when)
+            finally:
+                fgt.delete_guest(group, saved["id"])
+            return f"criado e apagado em {group}; validade gravada no formato '{fmt}' (padrão do FortiGate: '{native}')"
 
         check("Escrita: usuário guest de teste", guest_roundtrip)
 

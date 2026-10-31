@@ -55,7 +55,20 @@ class MockFortiGate:
                 return g
         raise FortiGateError(f"FortiGate respondeu 404: grupo {name} não existe")
 
+    @staticmethod
+    def _store_expiration(fields):
+        """Imita versões do FortiOS que só aceitam um formato de validade (MOCK_EXPIRATION) e gravam 0."""
+        import os
+        if "expiration" not in fields:
+            return fields
+        accepted = os.getenv("MOCK_EXPIRATION", "data")
+        value = fields["expiration"]
+        ok = {"data": isinstance(value, str) and "/" in value and value[:4].isdigit(),
+              "epoch": isinstance(value, int)}.get(accepted, False)
+        return {**fields, "expiration": value if ok else 0}
+
     def add_guest(self, group, guest):
+        guest = self._store_expiration(guest)
         g = self._group(group)
         if any(x["user-id"] == guest["user-id"] for x in g["guest"]):
             raise FortiGateError("FortiGate respondeu 500: entrada duplicada")
@@ -64,6 +77,7 @@ class MockFortiGate:
         return {"status": "success", "mkey": self._next_id - 1}
 
     def update_guest(self, group, guest_id, fields):
+        fields = self._store_expiration(fields)
         for x in self._group(group)["guest"]:
             if x["id"] == guest_id:
                 x.update({k: v for k, v in fields.items() if k != "password"})

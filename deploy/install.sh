@@ -88,7 +88,17 @@ rm -f "$STATE/auto-update"   # da versão antiga, que instalava sozinha
 RECONFIGURE=1
 if [ -f "$APP_DIR/.env" ]; then
   say "Já existe uma configuração em $APP_DIR/.env"
-  yes_no "Refazer a configuração (FortiGate, login, acesso)? Responda não para só atualizar o programa" N || RECONFIGURE=0
+  # Funções novas que precisam de configuração (e de permissões novas no token do FortiGate)
+  MISSING=()
+  grep -q "^FGT_MAIN_SSID='[^']" "$APP_DIR/.env" || MISSING+=("aba SSIDs (SSID principal e permissões de Wi-Fi no token)")
+  if [ ${#MISSING[@]} -gt 0 ]; then
+    info "Esta versão tem funções que ainda não estão configuradas no seu servidor:"
+    for m in "${MISSING[@]}"; do info "  - $m"; done
+    info "Refazer a configuração resolve isso. O que já existe no FortiGate é reaproveitado."
+    yes_no "Refazer a configuração agora?" S || RECONFIGURE=0
+  else
+    yes_no "Refazer a configuração (FortiGate, login, acesso)? Responda não para só atualizar o programa" N || RECONFIGURE=0
+  fi
 fi
 if [ "$RECONFIGURE" = 1 ]; then
   # Grava num arquivo temporário e só substitui o .env se o assistente terminar
@@ -247,13 +257,17 @@ fi
 
 if [ "$HAS_SYSTEMD" = 1 ]; then
   say "Ativando os serviços"
-  cp "$APP_DIR"/deploy/*.service "$APP_DIR"/deploy/*.timer /etc/systemd/system/
+  cp "$APP_DIR"/deploy/*.service "$APP_DIR"/deploy/*.timer "$APP_DIR"/deploy/*.path /etc/systemd/system/
   systemctl daemon-reload
   systemctl enable -q acessowifi acessowifi-cleanup.timer
   if [ "$UPDATES" = 1 ]; then
-    systemctl enable -q --now acessowifi-update.timer acessowifi-update.path acessowifi-update-install.path
-    /usr/local/sbin/acessowifi-update --verificar >/dev/null 2>&1 || true
-    info "Botão de atualizações ativo: o painel avisa quando houver commits novos no GitHub."
+    # Falha aqui não pode impedir o painel de subir
+    if systemctl enable -q --now acessowifi-update.timer acessowifi-update.path acessowifi-update-install.path; then
+      /usr/local/sbin/acessowifi-update --verificar >/dev/null 2>&1 || true
+      info "Botão de atualizações ativo: o painel avisa quando houver versões novas no GitHub."
+    else
+      info "Não consegui ativar o botão de atualizações (o painel funciona normalmente). Veja: systemctl status acessowifi-update.path"
+    fi
   else
     systemctl disable -q --now acessowifi-update.timer acessowifi-update.path acessowifi-update-install.path 2>/dev/null || true
   fi
