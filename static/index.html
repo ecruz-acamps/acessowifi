@@ -202,6 +202,49 @@
         <label class="check"><input type="radio" name="mode" value="off"> Desligado</label>
       </fieldset>
 
+      <fieldset id="ssid-net" hidden>
+        <legend>Rede (o painel cria no FortiGate)</legend>
+        <div class="row">
+          <label>Faixa de IP <input name="network" placeholder="10.250.2.0/24" autocomplete="off"></label>
+          <label>Gateway (IP do FortiGate) <input name="gateway" autocomplete="off"></label>
+        </div>
+        <div class="row">
+          <label>DHCP: primeiro IP <input name="dhcp_start" autocomplete="off"></label>
+          <label>DHCP: último IP <input name="dhcp_end" autocomplete="off"></label>
+        </div>
+        <div class="row">
+          <label>DNS
+            <select name="dns">
+              <option value="fortigate">FortiGate (padrão)</option>
+              <option value="google">Google (8.8.8.8)</option>
+              <option value="cloudflare">Cloudflare (1.1.1.1)</option>
+              <option value="custom">Outro…</option>
+            </select>
+          </label>
+          <label>Tempo de concessão do IP
+            <select name="lease_hours">
+              <option value="1">1 hora</option>
+              <option value="4">4 horas</option>
+              <option value="8">8 horas</option>
+              <option value="24">1 dia</option>
+              <option value="168">7 dias</option>
+            </select>
+          </label>
+        </div>
+        <div class="row" data-dns-custom hidden>
+          <label>DNS 1 <input name="dns1" autocomplete="off"></label>
+          <label>DNS 2 (opcional) <input name="dns2" autocomplete="off"></label>
+        </div>
+        <label>Internet
+          <select name="filters">
+            <option value="main">Mesmos filtros e perfis de segurança do SSID principal</option>
+            <option value="none">Só internet, sem filtros</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" name="isolate"> Isolar aparelhos (um não enxerga o outro na rede)</label>
+        <p class="muted small-note" data-net-fixed hidden>A faixa de IP não muda depois de criada; para trocar, remova e crie o SSID de novo.</p>
+      </fieldset>
+
       <fieldset>
         <legend>Em quais FortiAPs</legend>
         <div id="ssid-aps" class="checks"></div>

@@ -468,6 +468,38 @@ const ssidDialog = $("#ssid-dialog");
 const ssidForm = $("#ssid-form");
 const sf = ssidForm.elements;
 
+// IPv4 <-> número, para sugerir gateway e DHCP quando a faixa muda
+const ipToInt = (ip) => ip.split(".").reduce((n, o) => n * 256 + Number(o), 0);
+const intToIp = (n) => [24, 16, 8, 0].map((b) => Math.floor(n / 2 ** b) % 256).join(".");
+
+function suggestFromNetwork() {
+  const m = sf.network.value.trim().match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+  if (!m || +m[2] < 16 || +m[2] > 29) return;
+  const size = 2 ** (32 - +m[2]);
+  const base = Math.floor(ipToInt(m[1]) / size) * size;
+  sf.gateway.value = intToIp(base + 1);
+  sf.dhcp_start.value = intToIp(base + (size > 32 ? 10 : 2));
+  sf.dhcp_end.value = intToIp(base + size - (size > 32 ? 6 : 2));
+}
+sf.network.addEventListener("change", suggestFromNetwork);
+sf.dns.addEventListener("change", () => (ssidForm.querySelector("[data-dns-custom]").hidden = sf.dns.value !== "custom"));
+
+function fillNet(net, editing) {
+  const own = state.ssid.main_info?.mode === "own";
+  $("#ssid-net").hidden = !own || !net;
+  if (!own || !net) return;
+  for (const k of ["network", "gateway", "dhcp_start", "dhcp_end", "dns1", "dns2"]) sf[k].value = net[k] || "";
+  sf.dns.value = net.dns || "fortigate";
+  sf.filters.value = net.filters || "main";
+  sf.isolate.checked = !!net.isolate;
+  const hours = String(Math.round(net.lease_hours || 8));
+  if (![...sf.lease_hours.options].some((o) => o.value === hours)) sf.lease_hours.append(new Option(`${hours} horas`, hours));
+  sf.lease_hours.value = hours;
+  sf.network.readOnly = editing;
+  ssidForm.querySelector("[data-net-fixed]").hidden = !editing;
+  ssidForm.querySelector("[data-dns-custom]").hidden = sf.dns.value !== "custom";
+}
+
 function syncWindowFields() {
   const isWindow = sf.mode.value === "window";
   ssidForm.querySelector("[data-window]").hidden = !isWindow;
@@ -498,6 +530,7 @@ function openSsidDialog(x = null) {
     return label;
   }));
   sf.ssid.value = x ? x.ssid : "";
+  fillNet(x ? x.net : state.ssid.suggested_net, !!x);
   const mode = x && ["on", "off", "window"].includes(x.mode) ? x.mode : "window";
   ssidForm.querySelector(`input[name=mode][value=${mode}]`).checked = true;
   const access = !x || x.access === "portal" ? "same" : x.access === "open" ? "open" : "wpa2";
@@ -520,6 +553,13 @@ ssidForm.addEventListener("submit", async (ev) => {
     security: sf.security.value,
   };
   if (payload.security === "wpa2" && sf.passphrase.value) payload.passphrase = sf.passphrase.value;
+  if (!$("#ssid-net").hidden) {
+    payload.net = Object.fromEntries(["network", "gateway", "dhcp_start", "dhcp_end", "dns", "dns1", "dns2", "filters"]
+      .map((k) => [k, sf[k].value.trim()]));
+    payload.net.lease_hours = Number(sf.lease_hours.value);
+    payload.net.isolate = sf.isolate.checked;
+    if (x) delete payload.net.network;
+  }
   if (payload.mode === "window") Object.assign(payload, { start: sf.start.value, end: sf.end.value });
   const submit = $("#ssid-submit");
   submit.disabled = true;

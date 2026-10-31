@@ -232,7 +232,7 @@ Depende de como o SSID principal está montado. O instalador, o `acessowifi test
 
 | SSID principal | Rede de cada SSID novo |
 |---|---|
-| **Túnel** (o padrão), fora de software switch | **Rede própria**, criada pelo painel: uma faixa `/24` livre de `10.250.0.0/16` (por exemplo `10.250.2.0/24`, gateway `.1`), servidor DHCP (`.10` a `.250`, DNS do FortiGate) e uma política de internet `aw-<nome>` **copiada da política do SSID principal** (mesma saída, NAT e perfis de segurança), colocada logo acima dela |
+| **Túnel** (o padrão), fora de software switch | **Rede própria**, criada pelo painel com as respostas do formulário: faixa de IP (sugestão: uma `/24` livre de `10.250.0.0/16`), gateway, faixa do DHCP, DNS, tempo de concessão, filtros de internet (os do principal ou nenhum) e isolamento entre aparelhos. A política de internet `aw-<nome>` é **copiada da política do SSID principal** (mesma saída e NAT) e colocada logo acima dela |
 | **Software switch** | Entra no mesmo switch: mesma rede, DHCP e políticas do principal |
 | **Bridge** (*local bridging*) | Mesma VLAN do principal |
 

@@ -3,6 +3,11 @@
 Cada versão nova aumenta o número depois do ponto (1.0, 1.1, 1.2...). O botão **Atualizações** do painel
 mostra as versões disponíveis e o que cada uma traz, a partir deste arquivo.
 
+## 1.5 — 2026-10-31
+- Aba SSIDs: ao criar um SSID com rede própria, o formulário pergunta tudo o que é preciso para ele funcionar, já preenchido com sugestões: faixa de IP, gateway, faixa do DHCP, DNS (FortiGate, Google, Cloudflare ou outro), tempo de concessão do IP, filtros de internet (iguais aos do principal ou só internet) e isolamento entre aparelhos. Não é preciso mexer no FortiGate.
+- O painel confere as respostas antes de aplicar: faixa sobreposta a outra rede, gateway fora da faixa, DHCP incluindo o gateway etc.
+- Na edição, DHCP, DNS, concessão, filtros e isolamento podem ser alterados; a faixa de IP fica fixa.
+
 ## 1.4 — 2026-10-31
 - Aba SSIDs: quando o SSID principal está em modo túnel, cada SSID novo ganha **rede própria**: uma faixa de IP livre, servidor DHCP e uma política de internet copiada da política do SSID principal (mesma saída, NAT e perfis de segurança). Ao remover o SSID, tudo isso é apagado junto.
 - A lista de SSIDs mostra a rede (faixa de IP) de cada SSID criado pelo painel.

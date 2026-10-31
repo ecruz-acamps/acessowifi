@@ -233,21 +233,103 @@ def _network_of(interfaces, name):
     return None
 
 
-def _create_own_network(fgt, name, access, undo):
+UTM_FIELDS = ("utm-status", "inspection-mode", "ssl-ssh-profile", "av-profile", "webfilter-profile",
+              "dnsfilter-profile", "application-list", "ips-sensor", "file-filter-profile", "emailfilter-profile")
+DNS_PRESETS = {"google": ("8.8.8.8", "8.8.4.4"), "cloudflare": ("1.1.1.1", "1.0.0.1")}
+
+
+def suggest_network(fgt):
+    """Valores sugeridos para a rede de um SSID novo (o formulário vem preenchido com eles)."""
+    net = _free_network(fgt)
+    main = fgt.get_one(VAP, main_vap_name()) or {}
+    return {"network": str(net), "gateway": str(net[1]), "dhcp_start": str(net[10]), "dhcp_end": str(net[250]),
+            "dns": "fortigate", "dns1": "", "dns2": "", "lease_hours": 8,
+            "isolate": main.get("intra-vap-privacy") == "enable", "filters": "main"}
+
+
+def _ip(value, label):
+    try:
+        return ipaddress.ip_address(str(value or "").strip())
+    except ValueError:
+        raise SSIDError(f"{label}: endereço IP inválido.")
+
+
+def _network_settings(fgt, data, current_net=None):
+    """Valida as respostas da seção "Rede". Na edição, a faixa (current_net) não muda."""
+    if current_net is None:
+        try:
+            net = ipaddress.ip_network(str(data.get("network") or "").strip(), strict=False)
+        except ValueError:
+            raise SSIDError("Faixa de IP inválida. Use o formato 10.250.2.0/24.")
+        if net.version != 4 or not 16 <= net.prefixlen <= 29:
+            raise SSIDError("A faixa de IP deve ser IPv4, de /16 (65 mil aparelhos) a /29 (6 aparelhos).")
+        if not net.is_private:
+            raise SSIDError("Use uma faixa de IP privada (10.x, 172.16-31.x ou 192.168.x).")
+        clash = next((u for u in _networks_in_use(fgt) if net.overlaps(u)), None)
+        if clash:
+            raise SSIDError(f"A faixa {net} se sobrepõe a uma rede que já existe no FortiGate ({clash}).")
+    else:
+        net = current_net
+    gw = _ip(data.get("gateway"), "Gateway")
+    start, end = _ip(data.get("dhcp_start"), "Início do DHCP"), _ip(data.get("dhcp_end"), "Fim do DHCP")
+    hosts = (net.network_address, net.broadcast_address)
+    for addr, label in ((gw, "O gateway"), (start, "O início do DHCP"), (end, "O fim do DHCP")):
+        if addr not in net or addr in hosts:
+            raise SSIDError(f"{label} ({addr}) precisa estar dentro da faixa {net} (sem ser o primeiro nem o último IP).")
+    if start > end:
+        raise SSIDError("O início do DHCP precisa vir antes do fim.")
+    if start <= gw <= end:
+        raise SSIDError(f"O gateway ({gw}) não pode estar dentro da faixa do DHCP.")
+    dns = data.get("dns", "fortigate")
+    if dns == "custom":
+        servers = (str(_ip(data.get("dns1"), "DNS 1")), str(_ip(data.get("dns2"), "DNS 2")) if data.get("dns2") else "")
+    elif dns in DNS_PRESETS:
+        servers = DNS_PRESETS[dns]
+    elif dns == "fortigate":
+        servers = None
+    else:
+        raise SSIDError("Escolha o DNS.")
+    try:
+        lease = int(float(data.get("lease_hours", 8)) * 3600)
+    except (TypeError, ValueError):
+        raise SSIDError("Tempo de concessão inválido.")
+    if not 300 <= lease <= 7 * 86400:
+        raise SSIDError("O tempo de concessão do IP deve ficar entre 5 minutos e 7 dias.")
+    if data.get("filters", "main") not in ("main", "none"):
+        raise SSIDError("Escolha os filtros de internet.")
+    return {"net": net, "gateway": gw, "start": start, "end": end, "dns": servers, "lease": lease,
+            "isolate": bool(data.get("isolate")), "filters": data.get("filters", "main")}
+
+
+def _dhcp_body(cfg):
+    body = {"default-gateway": str(cfg["gateway"]), "netmask": str(cfg["net"].netmask), "lease-time": cfg["lease"],
+            "ip-range": [{"id": 1, "start-ip": str(cfg["start"]), "end-ip": str(cfg["end"])}]}
+    if cfg["dns"]:
+        body.update({"dns-service": "specify", "dns-server1": cfg["dns"][0], "dns-server2": cfg["dns"][1] or "0.0.0.0"})
+    else:
+        body["dns-service"] = "default"
+    return body
+
+
+def _policy_filters(template, filters):
+    if filters == "none":   # só internet: sem perfis de segurança
+        return {"utm-status": "disable"}
+    return {k: template[k] for k in UTM_FIELDS if k in template}
+
+
+def _create_own_network(fgt, name, access, undo, cfg):
     """Faixa de IP, DHCP e política de internet do SSID novo (modelo: a política do principal)."""
     template = _internet_policy(fgt, main_vap_name())
-    net = _free_network(fgt)
-    gw = net[1]
+    net, gw = cfg["net"], cfg["gateway"]
     fgt.update(INTERFACE, name, {"ip": f"{gw} {net.netmask}", "allowaccess": "ping", "role": "lan"})
 
-    r = fgt.create(DHCP, {"status": "enable", "interface": name, "default-gateway": str(gw),
-                          "netmask": str(net.netmask), "dns-service": "default", "lease-time": 28800,
-                          "ip-range": [{"id": 1, "start-ip": str(net[10]), "end-ip": str(net[250])}]})
+    r = fgt.create(DHCP, {"status": "enable", "interface": name, **_dhcp_body(cfg)})
     dhcp_id = r.get("mkey") or next((d["id"] for d in fgt.get(DHCP) if d.get("interface") == name), None)
     if dhcp_id is not None:
         undo.append(lambda: fgt.remove(DHCP, dhcp_id))
 
-    body = {k: template[k] for k in POLICY_FIELDS if k in template}
+    body = {k: template[k] for k in POLICY_FIELDS if k in template and k not in UTM_FIELDS}
+    body.update(_policy_filters(template, cfg["filters"]))
     if access != "same":   # sem captive portal: grupos na política bloqueariam o acesso
         body.pop("groups", None)
         body.pop("users", None)
@@ -260,6 +342,44 @@ def _create_own_network(fgt, name, access, undo):
     undo.append(lambda: fgt.remove(POLICY, pid))
     fgt.move_policy(pid, before=template["policyid"])   # acima da do principal (antes de um eventual "negar tudo")
     return str(net)
+
+
+def _own_network_details(fgt, name, interfaces, dhcps, policies):
+    """Respostas atuais da seção "Rede" de um SSID com rede própria (para o formulário de edição)."""
+    parts = str((interfaces.get(name) or {}).get("ip") or "").split()
+    if len(parts) != 2 or parts[0] == "0.0.0.0":
+        return None
+    iface = ipaddress.ip_interface(f"{parts[0]}/{parts[1]}")
+    d = next((x for x in dhcps if x.get("interface") == name), {})
+    rng = (d.get("ip-range") or [{}])[0]
+    dns, dns1, dns2 = "fortigate", "", ""
+    if d.get("dns-service") == "specify":
+        pair = (d.get("dns-server1", ""), d.get("dns-server2", ""))
+        dns = next((k for k, v in DNS_PRESETS.items() if v == pair), "custom")
+        dns1, dns2 = pair[0], "" if pair[1] == "0.0.0.0" else pair[1]
+    pol = next((p for p in policies if _names(p.get("srcintf")) == [name]), {})
+    return {"network": str(iface.network), "gateway": str(iface.ip), "dhcp_start": rng.get("start-ip", ""),
+            "dhcp_end": rng.get("end-ip", ""), "dns": dns, "dns1": dns1, "dns2": dns2,
+            "lease_hours": round(int(d.get("lease-time") or 28800) / 3600, 2),
+            "filters": "none" if pol.get("utm-status") == "disable" else "main"}
+
+
+def _update_own_network(fgt, name, vap, data):
+    interfaces = {i.get("name"): i for i in fgt.get(INTERFACE)}
+    current = _own_network_details(fgt, name, interfaces, fgt.get(DHCP), fgt.get(POLICY))
+    if not current:
+        return
+    cfg = _network_settings(fgt, {**current, **data}, current_net=ipaddress.ip_network(current["network"]))
+    if str(cfg["gateway"]) != current["gateway"]:
+        fgt.update(INTERFACE, name, {"ip": f"{cfg['gateway']} {cfg['net'].netmask}"})
+    d = next((x for x in fgt.get(DHCP) if x.get("interface") == name), None)
+    if d:
+        fgt.update(DHCP, d["id"], _dhcp_body(cfg))
+    ours = next((p for p in fgt.get(POLICY) if _names(p.get("srcintf")) == [name]), None)
+    template = _internet_policy(fgt, main_vap_name()) or {}
+    if ours and "filters" in data:
+        clear = {k: "" for k in UTM_FIELDS if k in ours and k != "utm-status"} if cfg["filters"] == "none" else {}
+        fgt.update(POLICY, ours["policyid"], {**clear, **_policy_filters(template, cfg["filters"])})
 
 
 def _remove_own_network(fgt, name):
@@ -410,6 +530,7 @@ def list_ssids(fgt):
     schedules = {s["name"]: s for s in fgt.get(ONETIME)}
     main, now = main_vap_name(), datetime.now()
     interfaces = {i.get("name"): i for i in fgt.get(INTERFACE)}
+    dhcps, policies = fgt.get(DHCP), fgt.get(POLICY)
     ssids = []
     for v in fgt.get(VAP):
         ssids.append({
@@ -419,11 +540,21 @@ def list_ssids(fgt):
             "managed": v["name"].startswith(PREFIX),
             "access": access_of(v),
             "network": _network_of(interfaces, v["name"]),
+            "net": ({**_own_network_details(fgt, v["name"], interfaces, dhcps, policies),
+                     "isolate": v.get("intra-vap-privacy") == "enable"}
+                    if v["name"].startswith(PREFIX) and _network_of(interfaces, v["name"]) else None),
             "aps": where.get(v["name"], []),
             **_describe_schedule(v, schedules, now),
         })
     ssids.sort(key=lambda s: (not s["main"], not s["managed"], s["ssid"].lower()))
-    return {"ready": ready, "reason": reason, "main": main, "main_info": main_info(fgt),
+    info = main_info(fgt)
+    suggested = None
+    if ready and info["mode"] == "own":
+        try:
+            suggested = suggest_network(fgt)
+        except SSIDError:
+            pass
+    return {"ready": ready, "reason": reason, "main": main, "main_info": info, "suggested_net": suggested,
             "can_choose_main": not os.getenv("FGT_MAIN_SSID", "").strip(), "aps": aps, "ssids": ssids}
 
 
@@ -460,20 +591,23 @@ def create_ssid(fgt, data):
         name, n = PREFIX + slug[:12 - len(suffix)] + suffix, n + 1
 
     main = fgt.get_one(VAP, main_vap_name())
+    own = main_info(fgt)["mode"] == "own"
+    cfg = _network_settings(fgt, data.get("net") or suggest_network(fgt)) if own else None
     undo = []
     try:
         schedule = _schedule_for(fgt, name, data)
         if schedule.startswith(PREFIX) and schedule != OFF_SCHEDULE:
             undo.append(lambda: fgt.remove(ONETIME, schedule))
         body = {k: main[k] for k in NETWORK_FIELDS if k in main}
+        if cfg:
+            body["intra-vap-privacy"] = "enable" if cfg["isolate"] else "disable"
         body.update(_security_body(main, data))
         body.update({"name": name, "ssid": text, "broadcast-ssid": "enable",
                      "schedule": _schedule_value(fgt, schedule)})
         fgt.create(VAP, body)
         undo.append(lambda: fgt.remove(VAP, name))
-        mode = main_info(fgt)["mode"]
-        if mode == "own":
-            _create_own_network(fgt, name, data.get("security", "same"), undo)
+        if own:
+            _create_own_network(fgt, name, data.get("security", "same"), undo, cfg)
         if switch:
             sw = fgt.get_one(SWITCH, switch)
             members = _names(sw.get("member"), "interface-name")
@@ -520,6 +654,10 @@ def update_ssid(fgt, name, data):
         fgt.update(VAP, name, body)
         if "schedule" in body and old.startswith(PREFIX) and old not in (OFF_SCHEDULE, new_schedule):
             fgt.remove(ONETIME, old)
+    if data.get("net"):
+        _update_own_network(fgt, name, vap, data["net"])
+        if "isolate" in data["net"]:
+            fgt.update(VAP, name, {"intra-vap-privacy": "enable" if data["net"]["isolate"] else "disable"})
     if "aps" in data:
         set_aps(fgt, name, _valid_aps(fgt, data["aps"]))
 
