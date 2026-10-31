@@ -43,6 +43,33 @@ case "${1:-ajuda}" in
     echo "porta interna configurada: ${BIND:-?}"
     ss -ltnp 2>/dev/null | grep -E ":(${BIND##*:}|80|443|8443) " || echo "(nada escutando nessas portas)"
     ;;
+  senha)
+    # Troca o usuário/senha de login do painel (não mexe no FortiGate)
+    CURRENT=$(sed -n "s/^APP_USER='\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "$APP_DIR/.env")
+    echo "Usuário atual do painel: ${CURRENT:-admin}"
+    read -r -p "Novo usuário [${CURRENT:-admin}]: " NEW_USER
+    NEW_USER=${NEW_USER:-${CURRENT:-admin}}
+    [[ $NEW_USER =~ ^[A-Za-z0-9._@-]{3,64}$ ]] || { echo "Usuário inválido (3 a 64 letras, números ou . _ @ -)."; exit 1; }
+    while :; do
+      read -r -s -p "Nova senha (mínimo 8 caracteres): " P1; echo
+      read -r -s -p "Repita a senha: " P2; echo
+      [ "$P1" = "$P2" ] || { echo "As senhas não conferem."; continue; }
+      [ ${#P1} -ge 8 ] || { echo "Use pelo menos 8 caracteres."; continue; }
+      break
+    done
+    printf '%s' "$P1" | NEW_USER="$NEW_USER" ENV_FILE="$APP_DIR/.env" "$APP_DIR/.venv/bin/python" -c '
+import os, sys
+from werkzeug.security import generate_password_hash
+values = {"APP_USER": os.environ["NEW_USER"], "APP_PASSWORD_HASH": generate_password_hash(sys.stdin.read())}
+path = os.environ["ENV_FILE"]
+lines = open(path).read().splitlines()
+out = [l for l in lines if l.split("=", 1)[0] not in values] + [f"{k}=\x27{v}\x27" for k, v in values.items()]
+open(path, "w").write("\n".join(out) + "\n")'
+    unset P1 P2
+    chown root:"$SVC_USER" "$APP_DIR/.env"; chmod 640 "$APP_DIR/.env"
+    systemctl restart acessowifi 2>/dev/null || true
+    echo "Pronto: entre no painel com o usuário '$NEW_USER' e a nova senha."
+    ;;
   log)       journalctl -u acessowifi -f ;;
   reiniciar) systemctl restart acessowifi && echo "Painel reiniciado." ;;
   *)
@@ -52,6 +79,7 @@ case "${1:-ajuda}" in
     echo "  log         acompanha o log do painel"
     echo "  reiniciar   reinicia o painel"
     echo "  diagnostico mostra por que o painel não sobe"
+    echo "  senha       troca o usuário e a senha de login do painel"
     echo "  limpar      remove agora as liberações de MAC vencidas"
     ;;
 esac
