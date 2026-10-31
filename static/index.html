@@ -11,17 +11,17 @@
     <h1>Acesso Wi-Fi</h1>
     <div class="header-right">
       <span id="updated" class="muted"></span>
-      <button id="refresh" type="button">Atualizar</button>
+      <button id="refresh" type="button" class="ghost">Atualizar</button>
       <form method="post" action="/logout"><button type="submit" class="ghost">Sair</button></form>
     </div>
   </header>
 
   <main>
     <section class="stats">
-      <div class="stat"><span id="stat-online">–</span><small>conectados</small></div>
-      <div class="stat"><span id="stat-users">–</span><small>usuários cadastrados</small></div>
-      <div class="stat"><span id="stat-unknown">–</span><small>sem usuário vinculado</small></div>
-      <div class="stat"><span id="stat-aps">–</span><small>APs online</small></div>
+      <div class="stat"><span id="stat-online">–</span><small>conectados com login</small></div>
+      <div class="stat"><span id="stat-google">–</span><small>via Google Workspace</small></div>
+      <div class="stat"><span id="stat-pending">–</span><small>aguardando login</small></div>
+      <div class="stat"><span id="stat-active">–</span><small>cadastros válidos</small></div>
     </section>
 
     <nav class="tabs" role="tablist">
@@ -31,7 +31,9 @@
     </nav>
 
     <div class="toolbar">
-      <input id="search" type="search" placeholder="Buscar por nome, IP, MAC, SSID…" autocomplete="off">
+      <input id="search" type="search" placeholder="Buscar por nome, usuário, IP, MAC…" autocomplete="off">
+      <label id="show-expired-wrap" class="check" hidden><input id="show-expired" type="checkbox"> mostrar expirados</label>
+      <button id="new-user" type="button" hidden>+ Novo usuário</button>
     </div>
 
     <div id="error" class="error" hidden></div>
@@ -39,7 +41,7 @@
     <div class="table-wrap" data-panel="clients">
       <table>
         <thead><tr>
-          <th>Usuário</th><th>Dispositivo</th><th>IP / MAC</th><th>SSID</th><th>AP</th>
+          <th>Usuário</th><th>Dispositivo</th><th>IP / MAC</th><th>AP</th>
           <th>Sinal</th><th>Taxa</th><th>Conectado há</th>
         </tr></thead>
         <tbody id="clients-body"></tbody>
@@ -49,7 +51,7 @@
     <div class="table-wrap" data-panel="users" hidden>
       <table>
         <thead><tr>
-          <th>Usuário</th><th>Tipo</th><th>Grupos</th><th>Contato</th><th>Validade</th><th>Status</th>
+          <th>Usuário</th><th>Equipe / Grupo</th><th>Contato</th><th>Validade</th><th>Status</th><th></th>
         </tr></thead>
         <tbody id="users-body"></tbody>
       </table>
@@ -62,6 +64,58 @@
       </table>
     </div>
   </main>
+
+  <dialog id="user-dialog">
+    <form id="user-form" method="dialog">
+      <h2 id="user-dialog-title">Novo usuário</h2>
+      <p id="form-error" class="error" hidden></p>
+
+      <label>Nome completo <input name="name" maxlength="64" autocomplete="off"></label>
+      <label>Usuário (login no Wi-Fi)
+        <input name="username" maxlength="64" required autocomplete="off" pattern="[A-Za-z0-9._@\-]{3,64}"
+               title="3 a 64 caracteres: letras, números e . _ @ -">
+      </label>
+      <div class="row">
+        <label>E-mail <input name="email" type="email" maxlength="64" autocomplete="off"></label>
+        <label>Telefone <input name="phone" maxlength="64" autocomplete="off" placeholder="+55…"></label>
+      </div>
+      <label>Equipe / observação <input name="company" maxlength="64" autocomplete="off" placeholder="ex.: Participante, Cozinha, Monitor"></label>
+      <label data-create-only>Grupo de acesso <select name="group" required></select></label>
+
+      <fieldset>
+        <legend>Válido até</legend>
+        <input name="expiration" type="datetime-local" required>
+        <div class="presets">
+          <button type="button" class="ghost small" data-days="0">Hoje</button>
+          <button type="button" class="ghost small" data-days="3">+3 dias</button>
+          <button type="button" class="ghost small" data-days="7">+7 dias</button>
+          <button type="button" class="ghost small" data-days="30">+30 dias</button>
+        </div>
+      </fieldset>
+
+      <label data-create-only>Senha <input name="password" maxlength="64" autocomplete="new-password" placeholder="deixe em branco para gerar"></label>
+      <label data-edit-only class="check"><input name="reset_password" type="checkbox"> gerar nova senha</label>
+
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Cancelar</button>
+        <button type="submit" id="user-submit">Cadastrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="cred-dialog">
+    <h2>Credenciais de acesso</h2>
+    <p class="muted">Repasse para a pessoa. A senha não será mostrada de novo.</p>
+    <dl class="cred">
+      <dt>Usuário</dt><dd id="cred-user" class="mono"></dd>
+      <dt>Senha</dt><dd id="cred-pass" class="mono"></dd>
+      <dt>Válido até</dt><dd id="cred-exp"></dd>
+    </dl>
+    <div class="actions">
+      <button type="button" class="ghost" id="cred-copy">Copiar</button>
+      <button type="button" data-close>Fechar</button>
+    </div>
+  </dialog>
 
   <script src="/static/app.js"></script>
 </body>

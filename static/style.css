@@ -12,6 +12,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
 button { font: inherit; cursor: pointer; border: 0; border-radius: 6px; padding: 7px 14px; background: var(--accent); color: #fff; }
 button:disabled { opacity: .6; cursor: default; }
@@ -62,3 +63,43 @@ td small { display: block; }
 .login-card h1 { margin: 0; font-size: 20px; }
 .login-card label { display: grid; gap: 4px; color: var(--muted); }
 .login-card button { padding: 10px; }
+
+/* --- Cadastro --- */
+:root { --info: #1d4ed8; --info-bg: #dbeafe; }
+@media (prefers-color-scheme: dark) { :root { --info: #93c5fd; --info-bg: #172554; } }
+.badge.info { background: var(--info-bg); color: var(--info); }
+td .badge + small, td small + .badge { margin-top: 3px; }
+td > .badge { margin-top: 2px; }
+
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.toolbar input[type=search] { flex: 1 1 240px; }
+.toolbar #new-user { margin-left: auto; }
+.check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+.check input { width: auto; }
+
+button.small { padding: 4px 10px; font-size: 13px; }
+button.danger { color: var(--bad); }
+.actions-cell { white-space: nowrap; text-align: right; }
+.actions-cell button + button { margin-left: 6px; }
+tr.dim td { opacity: .6; }
+
+dialog { border: 1px solid var(--border); border-radius: 10px; padding: 0; background: var(--surface); color: var(--text);
+  width: min(480px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+dialog > form, dialog#cred-dialog { padding: 20px; }
+dialog > form { display: grid; gap: 12px; }
+dialog h2 { margin: 0; font-size: 18px; }
+dialog label:not(.check) { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+dialog input:not([type=checkbox]), dialog select { width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
+dialog input[readonly] { background: var(--neutral-bg); }
+dialog fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px 12px; margin: 0; display: grid; gap: 8px; }
+dialog legend { color: var(--muted); font-size: 13px; padding: 0 4px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+.cred { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 16px 0; }
+.cred dt { color: var(--muted); }
+.cred dd { margin: 0; font-size: 16px; font-weight: 600; }

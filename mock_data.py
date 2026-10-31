@@ -1,74 +1,107 @@
 """Dados fictícios no formato da API do FortiOS, para testar sem o FortiGate (DEMO_MODE=1)."""
+import copy
 import random
 import time
+from datetime import datetime, timedelta
+
+from fortigate import FortiGateError
+
+
+def _fgt_date(days):
+    return (datetime.now() + timedelta(days=days)).strftime("%Y/%m/%d 23:59:00")
 
 
 class MockFortiGate:
-    def local_users(self):
-        return [
-            {"name": "ana.souza", "status": "enable", "type": "password",
-             "email-to": "ana@empresa.com.br", "sms-phone": "+5511988887777", "two-factor": "disable",
-             "passwd": "ENC xxxxx"},
-            {"name": "bruno.lima", "status": "enable", "type": "password",
-             "email-to": "bruno@empresa.com.br", "sms-phone": "", "two-factor": "email"},
-            {"name": "carla.reis", "status": "disable", "type": "password",
-             "email-to": "carla@empresa.com.br", "sms-phone": "", "two-factor": "disable"},
-            {"name": "diego.alves", "status": "enable", "type": "radius",
-             "email-to": "", "sms-phone": "", "two-factor": "disable"},
-            {"name": "recepcao", "status": "enable", "type": "password",
-             "email-to": "", "sms-phone": "", "two-factor": "disable"},
+    def __init__(self):
+        self._groups = [
+            {"name": "WiFi-Cadastrados", "group-type": "guest", "member": [],
+             "guest": [
+                 {"id": 1, "user-id": "joao.pereira", "name": "João Pereira", "email": "joao@gmail.com",
+                  "mobile-phone": "+5511977776666", "company": "Equipe Cozinha",
+                  "expiration": _fgt_date(20), "sponsor": "admin"},
+                 {"id": 2, "user-id": "marta.gomes", "name": "Marta Gomes", "email": "",
+                  "mobile-phone": "", "company": "Participante", "expiration": _fgt_date(0), "sponsor": "admin"},
+                 {"id": 3, "user-id": "pedro.santos", "name": "Pedro Santos", "email": "",
+                  "mobile-phone": "", "company": "Participante", "expiration": _fgt_date(-3), "sponsor": "admin"},
+             ]},
+            {"name": "WiFi-Google", "group-type": "firewall",
+             "member": [{"name": "Google-Workspace"}], "guest": []},
         ]
+        self._next_id = 4
+
+    # --- Configuração ---
+    def local_users(self):
+        return [{"name": "admin-rede", "status": "enable", "type": "password",
+                 "email-to": "", "sms-phone": "", "two-factor": "disable", "passwd": "ENC xxxxx"}]
 
     def user_groups(self):
-        return [
-            {"name": "WiFi-Funcionarios", "group-type": "firewall",
-             "member": [{"name": "ana.souza"}, {"name": "bruno.lima"}, {"name": "carla.reis"}, {"name": "diego.alves"}],
-             "guest": []},
-            {"name": "WiFi-Recepcao", "group-type": "firewall",
-             "member": [{"name": "recepcao"}], "guest": []},
-            {"name": "WiFi-Visitantes", "group-type": "guest", "member": [],
-             "guest": [
-                 {"user-id": "visitante01", "name": "João Pereira", "email": "joao@gmail.com",
-                  "mobile-phone": "+5511977776666", "company": "Fornecedor X",
-                  "expiration": "2026/11/01 18:00:00", "sponsor": "ana.souza"},
-                 {"user-id": "visitante02", "name": "Marta Gomes", "email": "",
-                  "mobile-phone": "", "company": "", "expiration": "2026/10/30 18:00:00", "sponsor": ""},
-             ]},
-        ]
+        return copy.deepcopy(self._groups)
 
+    def saml_servers(self):
+        return [{"name": "Google-Workspace", "idp-entity-id": "https://accounts.google.com/o/saml2?idpid=XXXX"}]
+
+    def _group(self, name):
+        for g in self._groups:
+            if g["name"] == name:
+                return g
+        raise FortiGateError(f"FortiGate respondeu 404: grupo {name} não existe")
+
+    def add_guest(self, group, guest):
+        g = self._group(group)
+        if any(x["user-id"] == guest["user-id"] for x in g["guest"]):
+            raise FortiGateError("FortiGate respondeu 500: entrada duplicada")
+        g["guest"].append({"id": self._next_id, **{k: v for k, v in guest.items() if k != "password"}})
+        self._next_id += 1
+        return {"status": "success", "mkey": self._next_id - 1}
+
+    def update_guest(self, group, guest_id, fields):
+        for x in self._group(group)["guest"]:
+            if x["id"] == guest_id:
+                x.update({k: v for k, v in fields.items() if k != "password"})
+                return {"status": "success"}
+        raise FortiGateError("FortiGate respondeu 404: usuário não encontrado")
+
+    def delete_guest(self, group, guest_id):
+        g = self._group(group)
+        g["guest"] = [x for x in g["guest"] if x["id"] != guest_id]
+        return {"status": "success"}
+
+    # --- Estado em tempo real ---
     def wifi_clients(self):
         now = int(time.time())
+        # No captive portal o FortiAP não informa o usuário; o painel cruza pelo IP
         base = [
-            ("ana.souza", "10.10.10.21", "a4:83:e7:11:22:33", "ANA-NOTEBOOK", "Windows", "Empresa-Corp", "AP-Sala", "802.11ax-5G", 36),
-            ("bruno.lima", "10.10.10.34", "f0:18:98:aa:bb:cc", "iPhone-Bruno", "iOS", "Empresa-Corp", "AP-Recepcao", "802.11ac", 149),
-            ("", "10.10.30.50", "3c:22:fb:44:55:66", "Galaxy-S23", "Android", "Empresa-Visitantes", "AP-Recepcao", "802.11n-2G", 6),
-            ("", "10.10.10.77", "dc:a6:32:01:02:03", "raspberrypi", "Linux", "Empresa-Corp", "FWF40F-Interno", "802.11n-2G", 11),
+            ("10.10.30.21", "a4:83:e7:11:22:33", "Galaxy-A54", "Android", "AP-Refeitorio", "802.11ax-5G", 36),
+            ("10.10.30.34", "f0:18:98:aa:bb:cc", "iPhone", "iOS", "AP-Refeitorio", "802.11ac", 149),
+            ("10.10.30.50", "3c:22:fb:44:55:66", "NOTE-COORD", "Windows", "AP-Secretaria", "802.11ax-5G", 44),
+            ("10.10.30.77", "dc:a6:32:01:02:03", "Redmi-Note", "Android", "AP-Alojamento", "802.11n-2G", 6),
         ]
         return [
-            {"user": u, "ip": ip, "mac": mac, "hostname": host, "os": os_, "ssid": ssid,
+            {"user": "", "ip": ip, "mac": mac, "hostname": host, "os": os_, "ssid": "Acampamento",
              "wtp_name": ap, "radio_type": radio, "channel": ch,
              "signal": random.randint(-75, -40), "snr": random.randint(15, 45),
-             "data_rate_bps": random.choice([72, 144, 433, 866, 1201]) * 1_000_000,
-             "vlan_id": 30 if "Visit" in ssid else 10,
-             "association_time": now - random.randint(60, 4 * 3600),
-             "idle_time": random.randint(0, 120), "health": {}}
-            for u, ip, mac, host, os_, ssid, ap, radio, ch in base
+             "data_rate_bps": random.choice([72, 144, 433, 866]) * 1_000_000, "vlan_id": 30,
+             "association_time": now - random.randint(60, 4 * 3600), "idle_time": random.randint(0, 120)}
+            for ip, mac, host, os_, ap, radio, ch in base
         ]
 
     def firewall_auth_users(self):
-        # Usuário de captive portal: aparece aqui pelo IP, não no cliente Wi-Fi
         return [
-            {"username": "visitante01", "ipaddr": "10.10.30.50", "usergroup": [{"name": "WiFi-Visitantes"}],
-             "duration": 1834, "expiry": 26966, "method": "Captive portal",
-             "traffic_vol_bytes": 52_340_112},
+            {"username": "joao.pereira", "ipaddr": "10.10.30.21", "usergroup": [{"name": "WiFi-Cadastrados"}],
+             "duration": 1834, "expiry": 26966, "method": "Captive portal", "traffic_vol_bytes": 52_340_112},
+            {"username": "coordenacao@acampamento.org.br", "ipaddr": "10.10.30.50",
+             "usergroup": [{"name": "WiFi-Google"}], "duration": 3600, "expiry": 25000,
+             "method": "Captive portal", "traffic_vol_bytes": 210_334_001},
+            {"username": "visitante.antigo", "ipaddr": "10.10.30.34", "usergroup": [{"name": "WiFi-Antigo"}],
+             "duration": 120, "expiry": 28000, "method": "Captive portal", "traffic_vol_bytes": 1_200_000},
         ]
 
     def managed_aps(self):
         return [
-            {"name": "FWF40F-Interno", "wtp_id": "FWF40F-WIFI0", "status": "connected", "local_ipv4_addr": "",
-             "os_version": "", "clients": 1, "is_local": True},
-            {"name": "AP-Sala", "wtp_id": "FP231FTF00000001", "status": "connected", "local_ipv4_addr": "10.10.0.11",
-             "os_version": "FP231F-v7.4", "clients": 1},
-            {"name": "AP-Recepcao", "wtp_id": "FP231FTF00000002", "status": "connected", "local_ipv4_addr": "10.10.0.12",
-             "os_version": "FP231F-v7.4", "clients": 2},
+            {"name": "AP-Refeitorio", "wtp_id": "FP231FTF00000001", "status": "connected",
+             "local_ipv4_addr": "10.10.0.11", "os_version": "FP231F-v7.2"},
+            {"name": "AP-Secretaria", "wtp_id": "FP231FTF00000002", "status": "connected",
+             "local_ipv4_addr": "10.10.0.12", "os_version": "FP231F-v7.2"},
+            {"name": "AP-Alojamento", "wtp_id": "FP231FTF00000003", "status": "connected",
+             "local_ipv4_addr": "10.10.0.13", "os_version": "FP231F-v7.2"},
         ]

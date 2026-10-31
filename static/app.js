@@ -1,5 +1,5 @@
 const REFRESH_MS = 30_000;
-const state = { tab: "clients", clients: [], users: [], aps: [] };
+const state = { tab: "clients", clients: [], users: [], aps: [], groups: [], editing: null };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -31,6 +31,33 @@ function signalBadge(dbm) {
   return badge(`${dbm} dBm`, kind);
 }
 
+function fmtDate(iso) {
+  if (!iso) return "–";
+  return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+
+// "YYYY-MM-DDTHH:MM" no horário local, para <input type=datetime-local>
+function localInput(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function endOfDayPlus(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(23, 59, 0, 0);
+  return localInput(d);
+}
+
+function validityBadge(u) {
+  if (!u.expiration) return null;
+  if (u.expired) return badge("expirado", "bad");
+  const hours = (new Date(u.expiration) - Date.now()) / 3.6e6;
+  if (hours < 24) return badge("expira hoje", "warn");
+  const days = Math.floor(hours / 24);
+  return el("small", days === 1 ? "1 dia restante" : `${days} dias restantes`, "muted");
+}
+
 function matches(obj, q) {
   if (!q) return true;
   return JSON.stringify(Object.values(obj)).toLowerCase().includes(q);
@@ -44,24 +71,27 @@ function emptyRow(tbody, cols, msg) {
   tbody.append(tr);
 }
 
+const SOURCE = {
+  registered: ["cadastrado", "ok"],
+  google: ["Google Workspace", "info"],
+  unknown: ["fora do painel", "warn"],
+  pending: ["aguardando login", "neutral"],
+};
+
 function renderClients(q) {
   const body = $("#clients-body");
   body.replaceChildren();
   const rows = state.clients.filter((c) => matches(c, q));
-  if (!rows.length) return emptyRow(body, 8, "Nenhum cliente conectado.");
+  if (!rows.length) return emptyRow(body, 7, "Nenhum cliente conectado.");
 
   for (const c of rows) {
     const tr = document.createElement("tr");
-    const user = c.username
-      ? el("div", c.username, "strong")
-      : badge("sem usuário", "warn");
-    const userInfo = c.username && !c.registered ? badge("não cadastrado", "bad") : el("small", c.auth_method, "muted");
+    const [label, kind] = SOURCE[c.source] || [c.source, ""];
     tr.append(
-      cell(user, userInfo),
+      cell(c.username ? el("div", c.username, "strong") : null, badge(label, kind)),
       cell(c.hostname || "–", el("small", [c.os, c.manufacturer].filter(Boolean).join(" · "), "muted")),
       cell(el("div", c.ip, "mono"), el("small", c.mac, "mono muted")),
-      cell(c.ssid, c.vlan != null ? el("small", `VLAN ${c.vlan}`, "muted") : null),
-      cell(c.ap, el("small", [c.radio, c.channel && `canal ${c.channel}`].filter(Boolean).join(" · "), "muted")),
+      cell(c.ap, el("small", [c.ssid, c.radio, c.channel && `canal ${c.channel}`].filter(Boolean).join(" · "), "muted")),
       cell(signalBadge(c.signal), c.snr != null ? el("small", `SNR ${c.snr}`, "muted") : null),
       cell(c.rate_mbps ? `${c.rate_mbps} Mbps` : "–"),
       cell(duration(c.connected_for)),
@@ -70,24 +100,45 @@ function renderClients(q) {
   }
 }
 
+function actionButton(text, cls, onClick) {
+  const b = el("button", text, `ghost small ${cls || ""}`);
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  return b;
+}
+
 function renderUsers(q) {
   const body = $("#users-body");
   body.replaceChildren();
-  const rows = state.users.filter((u) => matches(u, q))
-    .sort((a, b) => b.online - a.online || a.username.localeCompare(b.username));
+  const showExpired = $("#show-expired").checked;
+  const rows = state.users
+    .filter((u) => (showExpired || !u.expired) && matches(u, q))
+    .sort((a, b) => b.online - a.online || a.expired - b.expired || (a.username || "").localeCompare(b.username || ""));
   if (!rows.length) return emptyRow(body, 6, "Nenhum usuário encontrado.");
 
-  const authLabel = { password: "Local", radius: "RADIUS", ldap: "LDAP", tacacs: "TACACS+", guest: "Visitante" };
   for (const u of rows) {
     const tr = document.createElement("tr");
-    const status = !u.enabled ? badge("desativado", "bad") : u.online ? badge("online", "ok") : badge("offline");
+    if (u.expired) tr.className = "dim";
+    const status = !u.enabled ? badge("desativado", "bad")
+      : u.expired ? badge("expirado", "bad")
+      : u.online ? badge("online", "ok") : badge("offline");
+
+    const actions = document.createElement("td");
+    actions.className = "actions-cell";
+    if (u.editable) {
+      actions.append(
+        actionButton("Editar", "", () => openUserDialog(u)),
+        actionButton("Remover", "danger", () => removeUser(u)),
+      );
+    }
+
     tr.append(
       cell(el("div", u.username, "strong"), u.name ? el("small", u.name, "muted") : null),
-      cell(authLabel[u.auth] || u.auth, u.two_factor !== "disable" ? el("small", `2FA: ${u.two_factor}`, "muted") : null),
-      cell(u.groups.join(", ") || "–"),
-      cell(u.email || "–", u.phone ? el("small", u.phone, "muted") : null, u.company ? el("small", u.company, "muted") : null),
-      cell(u.expiration || "–"),
+      cell(u.company || "–", el("small", u.groups.join(", "), "muted")),
+      cell(u.email || "–", u.phone ? el("small", u.phone, "muted") : null),
+      cell(fmtDate(u.expiration), validityBadge(u)),
       cell(status),
+      actions,
     );
     body.append(tr);
   }
@@ -117,37 +168,163 @@ function render() {
   const q = $("#search").value.trim().toLowerCase();
   ({ clients: renderClients, users: renderUsers, aps: renderAps })[state.tab](q);
 
-  $("#stat-online").textContent = state.clients.length;
-  $("#stat-users").textContent = state.users.length;
-  $("#stat-unknown").textContent = state.clients.filter((c) => !c.username).length;
-  $("#stat-aps").textContent = state.aps.filter((a) => a.status === "connected").length;
+  const isUsers = state.tab === "users";
+  $("#new-user").hidden = !isUsers || !state.groups.length;
+  $("#show-expired-wrap").hidden = !isUsers;
+
+  $("#stat-online").textContent = state.clients.filter((c) => c.username).length;
+  $("#stat-google").textContent = state.clients.filter((c) => c.source === "google").length;
+  $("#stat-pending").textContent = state.clients.filter((c) => c.source === "pending").length;
+  $("#stat-active").textContent = state.users.filter((u) => u.kind === "guest" && !u.expired).length;
 }
 
-async function getJSON(url) {
-  const r = await fetch(url, { headers: { Accept: "application/json" } });
+async function api(url, options = {}) {
+  const r = await fetch(url, {
+    ...options,
+    headers: { Accept: "application/json", "Content-Type": "application/json", "X-Requested-With": "acessowifi" },
+  });
   if (r.status === 401) { location.href = "/login"; throw new Error("sessão expirada"); }
-  const data = await r.json();
+  const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `Erro ${r.status}`);
   return data;
+}
+
+function showError(msg) {
+  $("#error").textContent = msg;
+  $("#error").hidden = !msg;
 }
 
 async function load() {
   const btn = $("#refresh");
   btn.disabled = true;
   try {
-    [state.clients, state.users, state.aps] = await Promise.all(
-      ["/api/clients", "/api/users", "/api/aps"].map(getJSON),
+    [state.clients, state.users, state.aps, state.groups] = await Promise.all(
+      ["/api/clients", "/api/users", "/api/aps", "/api/groups"].map((u) => api(u)),
     );
-    $("#error").hidden = true;
+    showError("");
     $("#updated").textContent = `Atualizado às ${new Date().toLocaleTimeString("pt-BR")}`;
     render();
   } catch (e) {
-    $("#error").textContent = e.message;
-    $("#error").hidden = false;
+    showError(e.message);
   } finally {
     btn.disabled = false;
   }
 }
+
+// --- Cadastro / edição ---
+
+const dialog = $("#user-dialog");
+const form = $("#user-form");
+const fe = form.elements;
+
+function openUserDialog(user = null) {
+  state.editing = user;
+  form.reset();
+  $("#form-error").hidden = true;
+  const editing = !!user;
+  $("#user-dialog-title").textContent = editing ? `Editar ${user.username}` : "Novo usuário";
+  $("#user-submit").textContent = editing ? "Salvar" : "Cadastrar";
+  fe.username.readOnly = editing;
+  dialog.querySelectorAll("[data-create-only]").forEach((e) => (e.hidden = editing));
+  dialog.querySelectorAll("[data-edit-only]").forEach((e) => (e.hidden = !editing));
+  fe.group.required = !editing;
+
+  fe.group.replaceChildren(...state.groups.map((g) => new Option(g, g)));
+
+  if (editing) {
+    for (const f of ["username", "name", "email", "phone", "company"]) fe[f].value = user[f] || "";
+    // Expirado: sugere renovar por 7 dias
+    fe.expiration.value = user.expired ? endOfDayPlus(7) : user.expiration;
+  } else {
+    fe.expiration.value = endOfDayPlus(7);
+  }
+  fe.expiration.min = localInput(new Date());
+  dialog.showModal();
+  fe.name.focus();
+}
+
+// Sugere o login a partir do nome: "João da Silva" -> "joao.silva"
+fe.name.addEventListener("input", () => {
+  if (state.editing || fe.username.dataset.touched) return;
+  const words = fe.name.value.normalize("NFD").replace(/\p{Diacritic}/gu, "")
+    .toLowerCase().replace(/[^a-z0-9 ]/g, "").split(/\s+/)
+    .filter((w) => w && !["da", "de", "do", "das", "dos", "e"].includes(w));
+  fe.username.value = words.length > 1 ? `${words[0]}.${words[words.length - 1]}` : words[0] || "";
+});
+fe.username.addEventListener("input", () => (fe.username.dataset.touched = "1"));
+dialog.addEventListener("close", () => delete fe.username.dataset.touched);
+
+dialog.querySelectorAll("[data-days]").forEach((b) =>
+  b.addEventListener("click", () => (fe.expiration.value = endOfDayPlus(Number(b.dataset.days)))),
+);
+
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const submit = $("#user-submit");
+  submit.disabled = true;
+  const fields = Object.fromEntries(new FormData(form));
+  try {
+    let result;
+    if (state.editing) {
+      const u = state.editing;
+      const payload = {
+        name: fields.name, email: fields.email, phone: fields.phone, company: fields.company,
+        reset_password: !!fields.reset_password,
+      };
+      if (fields.expiration !== u.expiration) payload.expiration = fields.expiration;
+      result = await api(`/api/users/${encodeURIComponent(u.group)}/${u.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      result.expiration = fields.expiration;
+    } else {
+      result = await api("/api/users", { method: "POST", body: JSON.stringify(fields) });
+      result.expiration = fields.expiration;
+    }
+    dialog.close();
+    if (result.password) showCredentials(result);
+    await load();
+  } catch (e) {
+    $("#form-error").textContent = e.message;
+    $("#form-error").hidden = false;
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+async function removeUser(u) {
+  if (!confirm(`Remover o acesso de ${u.name || u.username}? Isso não pode ser desfeito.`)) return;
+  try {
+    await api(`/api/users/${encodeURIComponent(u.group)}/${u.id}`, { method: "DELETE" });
+    await load();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+const credDialog = $("#cred-dialog");
+
+function showCredentials({ username, password, expiration }) {
+  $("#cred-user").textContent = username;
+  $("#cred-pass").textContent = password;
+  $("#cred-exp").textContent = fmtDate(expiration);
+  credDialog.showModal();
+}
+
+$("#cred-copy").addEventListener("click", async () => {
+  const text = `Wi-Fi\nUsuário: ${$("#cred-user").textContent}\nSenha: ${$("#cred-pass").textContent}\n` +
+    `Válido até: ${$("#cred-exp").textContent}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    $("#cred-copy").textContent = "Copiado!";
+  } catch {
+    $("#cred-copy").textContent = "Copie manualmente";
+  }
+  setTimeout(() => ($("#cred-copy").textContent = "Copiar"), 2000);
+});
+
+document.querySelectorAll("dialog [data-close]").forEach((b) =>
+  b.addEventListener("click", () => b.closest("dialog").close()),
+);
+
+// --- Navegação ---
 
 document.querySelectorAll("[role=tab]").forEach((b) =>
   b.addEventListener("click", () => {
@@ -158,7 +335,9 @@ document.querySelectorAll("[role=tab]").forEach((b) =>
   }),
 );
 $("#search").addEventListener("input", render);
+$("#show-expired").addEventListener("change", render);
 $("#refresh").addEventListener("click", load);
+$("#new-user").addEventListener("click", () => openUserDialog());
 
 load();
-setInterval(() => { if (!document.hidden) load(); }, REFRESH_MS);
+setInterval(() => { if (!document.hidden && !dialog.open && !credDialog.open) load(); }, REFRESH_MS);
