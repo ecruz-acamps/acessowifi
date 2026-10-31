@@ -8,6 +8,8 @@
 # ativa os serviços e testa tudo. Rodar de novo atualiza o programa e pergunta se quer
 # refazer a configuração.
 set -euo pipefail
+# Com "su" (sem "-") o PATH não inclui as pastas sbin, onde ficam useradd, runuser, nginx e ufw
+export PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin"
 
 APP_DIR=/opt/acessowifi
 SVC_USER=acessowifi
