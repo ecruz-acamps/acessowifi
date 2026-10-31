@@ -187,7 +187,6 @@ end
 config system api-user
     edit "acessowifi"
         set accprofile "api-acessowifi"
-        set vdom "root"
         config trusthost
             edit 1
                 set ipv4-trusthost 192.168.1.50 255.255.255.255
@@ -229,6 +228,7 @@ Ele testa a conexão, as permissões e os grupos. Também cria e apaga um usuár
 | Validade adiantada ou atrasada algumas horas | Fusos diferentes | Passo 8 |
 | Modo automático: `Permission denied` / `Command fail` | Admin informado não é super_admin | Use um admin com perfil super_admin |
 | Modo automático: "usa VDOMs" | VDOMs habilitados | Use o modo manual, com os comandos dentro de `config vdom` / `config global` |
+| `command parse error before 'vdom'` no admin de API | `set vdom` só existe com VDOMs habilitados | Sem VDOMs, não use essa linha; com VDOMs, inclua `set vdom "root"` no `config system api-user` |
 
 ## Como desfazer
 

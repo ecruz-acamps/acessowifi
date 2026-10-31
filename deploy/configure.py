@@ -414,7 +414,7 @@ def _auto_configure(cli, host, names):
         "next", "end"]))
     plan.append((f"Admin de API '{names['api_user']}', aceito só a partir de {server_ip}, e geração do token", [
         "config system api-user", f"edit {q(names['api_user'])}", 'set comments "Painel Acesso Wi-Fi"',
-        f"set accprofile {q(names['profile'])}", 'set vdom "root"', "config trusthost", "edit 1",
+        f"set accprofile {q(names['profile'])}", "config trusthost", "edit 1",
         f"set ipv4-trusthost {server_ip} 255.255.255.255", "next", "end", "next", "end"]))
 
     # --- confirmação
