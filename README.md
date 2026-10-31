@@ -5,6 +5,7 @@ Painel interno para o Wi-Fi do acampamento (FortiGate 40F + FortiAP, captive por
 - **Cadastrar usuários** de acesso à internet, sempre com **data de validade**. O FortiGate bloqueia o login sozinho quando a conta vence.
 - Renovar a validade, gerar nova senha e remover acesso.
 - Ver **quem está conectado agora**: quem entrou com usuário cadastrado, quem entrou pelo **Google Workspace (SAML)** e quem está conectado ao SSID mas ainda **não fez login** no portal.
+- **Permitir sempre** um aparelho: o celular é liberado pelo MAC e não passa mais pelo captive portal.
 - Ver os FortiAPs e quantos clientes cada um tem.
 
 Roda no seu servidor e conversa com o FortiGate pela API REST.
@@ -25,6 +26,20 @@ Os usuários criados pelo painel são **contas de visitante (guest)** dentro de 
 - a senha é mostrada **uma única vez**, logo após o cadastro ou a troca. Se ficar em branco, o painel gera uma de 8 caracteres, fácil de digitar no celular.
 
 O login do Google Workspace continua funcionando como hoje. O painel só identifica essas pessoas, pelo grupo que tem o servidor SAML como membro, e as mostra como "Google Workspace" na lista de conectados.
+
+## Permitir sempre (liberação por MAC)
+
+Na aba **Conectados agora**, o botão **Permitir sempre** aparece em quem já fez login. O painel pega o MAC daquele aparelho e o coloca na lista de exceção do captive portal. A partir daí o aparelho navega direto, sem portal.
+
+- **Validade:** se a pessoa tem conta cadastrada no painel, a liberação **segue a conta**. Renovou a conta, o aparelho continua liberado; venceu ou foi removida, a liberação sai. Para usuários do Google, você escolhe a data na hora.
+- A remoção das liberações vencidas é feita por um *timer* do systemd a cada 5 minutos (`flask cleanup-devices`).
+- A aba **Aparelhos liberados** lista tudo e permite remover.
+- No FortiGate, cada aparelho vira um endereço `acessowifi-<mac>` do tipo MAC, membro do grupo `WiFi-MAC-Liberados`. O vínculo com o usuário fica no comentário do endereço.
+
+**Limitações importantes:**
+- **MAC aleatório:** iPhone e Android usam "endereço privado" por padrão. Ele costuma ser fixo por rede, mas muda se a pessoa "esquecer a rede", e no iOS 18 pode ficar "rotativo". Aí o aparelho volta a cair no portal. O painel marca esses aparelhos; para liberar de vez, desative o endereço privado dessa rede no celular e libere de novo.
+- **MAC pode ser clonado:** quem descobrir um MAC liberado consegue usá-lo para entrar sem login. Use para aparelhos de confiança.
+- O tráfego de aparelhos liberados não fica associado ao usuário nos logs do FortiGate, porque eles não fazem login. O painel mostra o dono pelo vínculo salvo.
 
 ## 1. Preparar o FortiGate (FortiOS 7.2)
 
@@ -47,18 +62,54 @@ end
 
 **b) Adicionar o grupo ao captive portal do SSID**: *WiFi & Switch Controller > SSIDs > (seu SSID) > Security Mode: Captive Portal > User Groups*. Inclua `WiFi-Cadastrados` junto com o grupo do Google que já existe. Confira também se a política de firewall do SSID libera esse grupo.
 
-**c) Perfil da API**: leitura e escrita em usuários, leitura no Wi-Fi.
+**c) Lista de exceção do captive portal** (para "Permitir sempre"). O FortiOS não aceita grupo de endereços vazio, então o grupo começa com um endereço fictício que não deve ser removido:
+```
+config firewall address
+    edit "WiFi-MAC-placeholder"
+        set type mac
+        set macaddr 02:00:00:00:00:00
+        set comment "Nao remover: mantem o grupo WiFi-MAC-Liberados nao vazio"
+    next
+end
+config firewall addrgrp
+    edit "WiFi-MAC-Liberados"
+        set member "WiFi-MAC-placeholder"
+    next
+end
+config user security-exempt-list
+    edit "WiFi-Liberados"
+        config rule
+            edit 1
+                set srcaddr "WiFi-MAC-Liberados"
+            next
+        end
+    next
+end
+config wireless-controller vap
+    edit "NOME_DO_SSID"
+        set security-exempt-list "WiFi-Liberados"
+    next
+end
+```
+Pela GUI: SSID → Captive Portal → **Exempt sources** → `WiFi-MAC-Liberados`.
+> Se a política de firewall do SSID para a internet exigir **grupos de usuário** na origem, o aparelho liberado não vai casar com ela, porque não fez login. Nesse caso, crie uma política acima com origem `WiFi-MAC-Liberados`, sem usuário.
+
+**d) Perfil da API**: escrita em usuários e endereços, leitura no Wi-Fi.
 ```
 config system accprofile
     edit "api-acessowifi"
         set authgrp read-write
         set wifi read
+        set fwgrp custom
+        config fwgrp-permission
+            set address read-write
+        end
     next
 end
 ```
-Com `authgrp read-write`, o token consegue alterar qualquer usuário ou grupo do FortiGate. É o painel que limita as alterações ao grupo guest. Por isso o token precisa de *trusted host* restrito e o `.env` precisa de `chmod 600`.
+Com essas permissões, o token consegue alterar qualquer usuário, grupo ou endereço do FortiGate. É o painel que limita as alterações ao grupo guest e aos endereços `acessowifi-*`. Por isso o token precisa de *trusted host* restrito e o `.env` precisa de `chmod 600`.
 
-**d) Admin REST API**, com o trusted host restrito ao IP do servidor:
+**e) Admin REST API**, com o trusted host restrito ao IP do servidor:
 ```
 config system api-user
     edit "acessowifi"
@@ -75,7 +126,7 @@ execute api-user generate-key acessowifi
 ```
 O token aparece uma única vez; copie na hora. A interface pela qual o servidor alcança o FortiGate precisa de `set allowaccess https`.
 
-**e) Recomendado: sessão com tempo máximo.** Quando uma conta expira ou é removida, quem já estava logado continua navegando até o *auth-timeout* acabar. Com timeout "hard", o corte acontece no máximo X minutos depois:
+**f) Recomendado: sessão com tempo máximo.** Quando uma conta expira ou é removida, quem já estava logado continua navegando até o *auth-timeout* acabar. Com timeout "hard", o corte acontece no máximo X minutos depois:
 ```
 config user setting
     set auth-timeout 240
@@ -83,7 +134,7 @@ config user setting
 end
 ```
 
-**f) Mesmo fuso horário** no FortiGate e no servidor, porque a validade é gravada na hora local:
+**g) Mesmo fuso horário** no FortiGate e no servidor, porque a validade é gravada na hora local:
 `config system global` → `set timezone` (Brasília) e `TZ=America/Sao_Paulo` no `.env`.
 
 ### Testar a API antes de instalar
@@ -102,7 +153,18 @@ curl -sk -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/jso
   "$F/cmdb/user/group/WiFi-Cadastrados/guest?vdom=root" \
   -d '{"user-id":"teste.api","password":"teste1234","name":"Teste API","expiration":"2026/12/31 23:59:00"}'
 ```
-Se o teste de cadastro funcionar, o painel vai funcionar. Para remover a conta de teste, use o `id` que aparece no GET do grupo:
+Teste também a liberação por MAC (e confira se o endereço aparece em *Policy & Objects > Addresses*):
+```bash
+curl -sk -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+  "$F/cmdb/firewall/address?vdom=root" \
+  -d '{"name":"acessowifi-teste","type":"mac","macaddr":[{"macaddr":"02:11:22:33:44:55"}],"comment":"teste"}'
+curl -sk -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+  "$F/cmdb/firewall/addrgrp/WiFi-MAC-Liberados/member?vdom=root" -d '{"name":"acessowifi-teste"}'
+# desfazer
+curl -sk -X DELETE -H "Authorization: Bearer $T" "$F/cmdb/firewall/addrgrp/WiFi-MAC-Liberados/member/acessowifi-teste?vdom=root"
+curl -sk -X DELETE -H "Authorization: Bearer $T" "$F/cmdb/firewall/address/acessowifi-teste?vdom=root"
+```
+Se esses testes funcionarem, o painel vai funcionar. Para remover a conta de teste, use o `id` que aparece no GET do grupo:
 `curl -sk -X DELETE -H "Authorization: Bearer $T" "$F/cmdb/user/group/WiFi-Cadastrados/guest/ID?vdom=root"`
 
 ## 2. Instalar no servidor (Linux)
@@ -115,7 +177,8 @@ sudo cp .env.example .env && sudo nano .env      # FGT_HOST, FGT_TOKEN, hash da 
 sudo chown -R acessowifi: /opt/acessowifi && sudo chmod 600 .env
 
 sudo cp deploy/acessowifi.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now acessowifi
+sudo cp deploy/acessowifi-cleanup.service deploy/acessowifi-cleanup.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now acessowifi acessowifi-cleanup.timer
 journalctl -u acessowifi -f      # log, incluindo quem cadastrou/alterou/removeu cada usuário
 ```
 

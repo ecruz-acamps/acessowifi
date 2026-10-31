@@ -28,6 +28,15 @@ class MockFortiGate:
              "member": [{"name": "Google-Workspace"}], "guest": []},
         ]
         self._next_id = 4
+        self._addresses = {
+            "WiFi-MAC-placeholder": {"name": "WiFi-MAC-placeholder", "type": "mac",
+                                     "macaddr": [{"macaddr": "02:00:00:00:00:00"}], "comment": ""},
+            "acessowifi-8cfabb112233": {"name": "acessowifi-8cfabb112233", "type": "mac",
+                                        "macaddr": [{"macaddr": "8c:fa:bb:11:22:33"}],
+                                        "comment": f"acessowifi;user=secretaria@acampamento.org.br;exp={_fgt_date(60)};host=iPad-Secretaria"},
+        }
+        self._addrgrp = {"WiFi-MAC-Liberados": {"name": "WiFi-MAC-Liberados", "member": [
+            {"name": "WiFi-MAC-placeholder"}, {"name": "acessowifi-8cfabb112233"}]}}
 
     # --- Configuração ---
     def local_users(self):
@@ -66,15 +75,46 @@ class MockFortiGate:
         g["guest"] = [x for x in g["guest"] if x["id"] != guest_id]
         return {"status": "success"}
 
+    # --- Endereços MAC ---
+    def addresses(self, prefix):
+        return [copy.deepcopy(a) for n, a in self._addresses.items() if prefix in n]
+
+    def address_group(self, group):
+        if group not in self._addrgrp:
+            raise FortiGateError(f"Grupo de endereços '{group}' não existe no FortiGate.")
+        return copy.deepcopy(self._addrgrp[group])
+
+    def create_address(self, address):
+        if address["name"] in self._addresses:
+            raise FortiGateError("FortiGate respondeu 500: entrada duplicada")
+        self._addresses[address["name"]] = copy.deepcopy(address)
+        return {"status": "success"}
+
+    def delete_address(self, name):
+        if any(m["name"] == name for g in self._addrgrp.values() for m in g["member"]):
+            raise FortiGateError("FortiGate respondeu 500: endereço em uso")
+        self._addresses.pop(name, None)
+        return {"status": "success"}
+
+    def add_group_member(self, group, name):
+        self._addrgrp[group]["member"].append({"name": name})
+        return {"status": "success"}
+
+    def remove_group_member(self, group, name):
+        g = self._addrgrp[group]
+        g["member"] = [m for m in g["member"] if m["name"] != name]
+        return {"status": "success"}
+
     # --- Estado em tempo real ---
     def wifi_clients(self):
         now = int(time.time())
         # No captive portal o FortiAP não informa o usuário; o painel cruza pelo IP
         base = [
             ("10.10.30.21", "a4:83:e7:11:22:33", "Galaxy-A54", "Android", "AP-Refeitorio", "802.11ax-5G", 36),
-            ("10.10.30.34", "f0:18:98:aa:bb:cc", "iPhone", "iOS", "AP-Refeitorio", "802.11ac", 149),
+            ("10.10.30.34", "f2:18:98:aa:bb:cc", "iPhone", "iOS", "AP-Refeitorio", "802.11ac", 149),
             ("10.10.30.50", "3c:22:fb:44:55:66", "NOTE-COORD", "Windows", "AP-Secretaria", "802.11ax-5G", 44),
             ("10.10.30.77", "dc:a6:32:01:02:03", "Redmi-Note", "Android", "AP-Alojamento", "802.11n-2G", 6),
+            ("10.10.30.90", "8c:fa:bb:11:22:33", "iPad-Secretaria", "iOS", "AP-Secretaria", "802.11ax-5G", 44),
         ]
         return [
             {"user": "", "ip": ip, "mac": mac, "hostname": host, "os": os_, "ssid": "Acampamento",

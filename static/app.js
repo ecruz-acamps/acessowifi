@@ -1,5 +1,5 @@
 const REFRESH_MS = 30_000;
-const state = { tab: "clients", clients: [], users: [], aps: [], groups: [], editing: null };
+const state = { tab: "clients", clients: [], users: [], devices: [], aps: [], groups: [], editing: null, device: null };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -76,13 +76,14 @@ const SOURCE = {
   google: ["Google Workspace", "info"],
   unknown: ["fora do painel", "warn"],
   pending: ["aguardando login", "neutral"],
+  mac: ["liberado por MAC", "ok"],
 };
 
 function renderClients(q) {
   const body = $("#clients-body");
   body.replaceChildren();
   const rows = state.clients.filter((c) => matches(c, q));
-  if (!rows.length) return emptyRow(body, 7, "Nenhum cliente conectado.");
+  if (!rows.length) return emptyRow(body, 8, "Nenhum cliente conectado.");
 
   for (const c of rows) {
     const tr = document.createElement("tr");
@@ -90,11 +91,45 @@ function renderClients(q) {
     tr.append(
       cell(c.username ? el("div", c.username, "strong") : null, badge(label, kind)),
       cell(c.hostname || "–", el("small", [c.os, c.manufacturer].filter(Boolean).join(" · "), "muted")),
-      cell(el("div", c.ip, "mono"), el("small", c.mac, "mono muted")),
+      cell(el("div", c.ip, "mono"), el("small", c.mac, "mono muted"), c.random_mac ? el("small", "MAC aleatório", "muted") : null),
       cell(c.ap, el("small", [c.ssid, c.radio, c.channel && `canal ${c.channel}`].filter(Boolean).join(" · "), "muted")),
       cell(signalBadge(c.signal), c.snr != null ? el("small", `SNR ${c.snr}`, "muted") : null),
       cell(c.rate_mbps ? `${c.rate_mbps} Mbps` : "–"),
       cell(duration(c.connected_for)),
+      clientActions(c),
+    );
+    body.append(tr);
+  }
+}
+
+function clientActions(c) {
+  const td = document.createElement("td");
+  td.className = "actions-cell";
+  if (c.allowed) td.append(badge("sempre permitido", "ok"));
+  else if (c.username) td.append(actionButton("Permitir sempre", "", () => openDeviceDialog(c)));
+  return td;
+}
+
+function renderDevices(q) {
+  const body = $("#devices-body");
+  body.replaceChildren();
+  const rows = state.devices.filter((d) => matches(d, q))
+    .sort((a, b) => b.online - a.online || (a.username || "").localeCompare(b.username || ""));
+  if (!rows.length) return emptyRow(body, 6, "Nenhum aparelho liberado. Use \"Permitir sempre\" na aba Conectados agora.");
+
+  for (const d of rows) {
+    const tr = document.createElement("tr");
+    if (d.expired) tr.className = "dim";
+    const actions = document.createElement("td");
+    actions.className = "actions-cell";
+    actions.append(actionButton("Remover", "danger", () => removeDevice(d)));
+    tr.append(
+      cell(el("div", d.hostname || "–", "strong")),
+      cell(el("div", d.mac, "mono"), d.random_mac ? el("small", "MAC aleatório", "muted") : null),
+      cell(d.username),
+      cell(fmtDate(d.expiration), el("small", d.follows_account ? "segue a validade da conta" : "validade própria", "muted")),
+      cell(d.expired ? badge("vencido", "bad") : d.online ? badge("online", "ok") : badge("offline")),
+      actions,
     );
     body.append(tr);
   }
@@ -137,7 +172,7 @@ function renderUsers(q) {
       cell(u.company || "–", el("small", u.groups.join(", "), "muted")),
       cell(u.email || "–", u.phone ? el("small", u.phone, "muted") : null),
       cell(fmtDate(u.expiration), validityBadge(u)),
-      cell(status),
+      cell(status, u.devices ? el("small", u.devices === 1 ? "1 aparelho liberado" : `${u.devices} aparelhos liberados`, "muted") : null),
       actions,
     );
     body.append(tr);
@@ -166,7 +201,7 @@ function renderAps(q) {
 
 function render() {
   const q = $("#search").value.trim().toLowerCase();
-  ({ clients: renderClients, users: renderUsers, aps: renderAps })[state.tab](q);
+  ({ clients: renderClients, users: renderUsers, devices: renderDevices, aps: renderAps })[state.tab](q);
 
   const isUsers = state.tab === "users";
   $("#new-user").hidden = !isUsers || !state.groups.length;
@@ -198,8 +233,8 @@ async function load() {
   const btn = $("#refresh");
   btn.disabled = true;
   try {
-    [state.clients, state.users, state.aps, state.groups] = await Promise.all(
-      ["/api/clients", "/api/users", "/api/aps", "/api/groups"].map((u) => api(u)),
+    [state.clients, state.users, state.devices, state.aps, state.groups] = await Promise.all(
+      ["/api/clients", "/api/users", "/api/devices", "/api/aps", "/api/groups"].map((u) => api(u)),
     );
     showError("");
     $("#updated").textContent = `Atualizado às ${new Date().toLocaleTimeString("pt-BR")}`;
@@ -254,8 +289,8 @@ fe.name.addEventListener("input", () => {
 fe.username.addEventListener("input", () => (fe.username.dataset.touched = "1"));
 dialog.addEventListener("close", () => delete fe.username.dataset.touched);
 
-dialog.querySelectorAll("[data-days]").forEach((b) =>
-  b.addEventListener("click", () => (fe.expiration.value = endOfDayPlus(Number(b.dataset.days)))),
+document.querySelectorAll("[data-days]").forEach((b) =>
+  b.addEventListener("click", () => (b.form.elements.expiration.value = endOfDayPlus(Number(b.dataset.days)))),
 );
 
 form.addEventListener("submit", async (ev) => {
@@ -290,9 +325,70 @@ form.addEventListener("submit", async (ev) => {
 });
 
 async function removeUser(u) {
-  if (!confirm(`Remover o acesso de ${u.name || u.username}? Isso não pode ser desfeito.`)) return;
+  const extra = u.devices ? ` Os ${u.devices} aparelho(s) liberado(s) também perdem o acesso.` : "";
+  if (!confirm(`Remover o acesso de ${u.name || u.username}?${extra} Isso não pode ser desfeito.`)) return;
   try {
     await api(`/api/users/${encodeURIComponent(u.group)}/${u.id}`, { method: "DELETE" });
+    await load();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// --- Permitir sempre (liberação por MAC) ---
+
+const deviceDialog = $("#device-dialog");
+const deviceForm = $("#device-form");
+
+function accountOf(username) {
+  return state.users.find((u) => u.kind === "guest" && u.editable && u.username.toLowerCase() === username.toLowerCase());
+}
+
+function openDeviceDialog(c) {
+  state.device = c;
+  deviceForm.reset();
+  $("#device-error").hidden = true;
+  $("#device-host").textContent = [c.hostname, c.os].filter(Boolean).join(" · ") || "–";
+  $("#device-mac").textContent = c.mac;
+  $("#device-user").textContent = c.username;
+  $("#device-random").hidden = !c.random_mac;
+
+  const account = accountOf(c.username);
+  const exp = deviceForm.elements.expiration;
+  $("#device-exp-wrap").hidden = !!account;
+  exp.required = !account;
+  $("#device-follows").textContent = account
+    ? `Segue a validade da conta de ${account.username} (até ${fmtDate(account.expiration)}). ` +
+      "Se a conta for renovada, o aparelho continua liberado; se vencer ou for removida, a liberação sai junto."
+    : "Este usuário não tem conta cadastrada no painel (ex.: Google Workspace). Escolha até quando liberar.";
+  exp.value = endOfDayPlus(30);
+  exp.min = localInput(new Date());
+  deviceDialog.showModal();
+}
+
+deviceForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const c = state.device;
+  const submit = $("#device-submit");
+  submit.disabled = true;
+  try {
+    const payload = { mac: c.mac, username: c.username, hostname: c.hostname };
+    if (!accountOf(c.username)) payload.expiration = deviceForm.elements.expiration.value;
+    await api("/api/devices", { method: "POST", body: JSON.stringify(payload) });
+    deviceDialog.close();
+    await load();
+  } catch (e) {
+    $("#device-error").textContent = e.message;
+    $("#device-error").hidden = false;
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+async function removeDevice(d) {
+  if (!confirm(`Remover a liberação de ${d.hostname || d.mac}? O aparelho volta a passar pelo captive portal.`)) return;
+  try {
+    await api(`/api/devices/${encodeURIComponent(d.mac)}`, { method: "DELETE" });
     await load();
   } catch (e) {
     showError(e.message);
@@ -340,4 +436,4 @@ $("#refresh").addEventListener("click", load);
 $("#new-user").addEventListener("click", () => openUserDialog());
 
 load();
-setInterval(() => { if (!document.hidden && !dialog.open && !credDialog.open) load(); }, REFRESH_MS);
+setInterval(() => { if (!document.hidden && !dialog.open && !credDialog.open && !deviceDialog.open) load(); }, REFRESH_MS);

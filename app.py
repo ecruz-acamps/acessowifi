@@ -30,6 +30,9 @@ APP_PASSWORD_HASH = os.environ["APP_PASSWORD_HASH"]
 # Grupos guest que o painel pode alterar. Vazio = todos os grupos do tipo guest.
 GUEST_GROUPS = [g.strip() for g in os.getenv("FGT_GUEST_GROUPS", "").split(",") if g.strip()]
 MAX_VALIDITY_DAYS = int(os.getenv("MAX_VALIDITY_DAYS", 365))
+# Grupo de endereços usado como "Exempt sources" do captive portal
+MAC_GROUP = os.getenv("FGT_MAC_GROUP", "WiFi-MAC-Liberados")
+MAC_PREFIX = "acessowifi-"  # só endereços com este prefixo são gerenciados pelo painel
 
 if os.getenv("DEMO_MODE") == "1":
     from mock_data import MockFortiGate
@@ -172,10 +175,102 @@ def registered_users(groups=None):
     return users
 
 
+def normalize_mac(value):
+    hexdigits = re.sub(r"[^0-9a-f]", "", str(value or "").lower())
+    if len(hexdigits) != 12:
+        raise BadRequest("Endereço MAC inválido.")
+    return ":".join(hexdigits[i:i + 2] for i in range(0, 12, 2))
+
+
+def is_random_mac(mac):
+    """MAC privado/aleatório (bit 'localmente administrado'), usado por iOS e Android."""
+    try:
+        return bool(int(mac[1], 16) & 2)
+    except (IndexError, ValueError):
+        return False
+
+
+# O vínculo aparelho -> usuário fica no comentário do endereço no FortiGate:
+# "acessowifi;user=joao.pereira;group=WiFi-Cadastrados;host=Galaxy-A54"  (validade segue a conta)
+# "acessowifi;user=fulano@acampamento.org.br;exp=2026/12/01 23:59:00;host=iPhone"  (validade própria)
+def _encode_comment(meta):
+    clean = {k: re.sub(r"[;=]", "", str(v))[:64] for k, v in meta.items() if v}
+    return ";".join(["acessowifi"] + [f"{k}={v}" for k, v in clean.items()])
+
+
+def _decode_comment(comment):
+    parts = (comment or "").split(";")
+    if not parts or parts[0] != "acessowifi":
+        return {}
+    return dict(p.split("=", 1) for p in parts[1:] if "=" in p)
+
+
+def _address_mac(address):
+    mac = address.get("macaddr")
+    if isinstance(mac, list):
+        mac = mac[0].get("macaddr") if mac else ""
+    return (mac or "").lower()
+
+
+def allowed_devices(groups=None):
+    """Aparelhos liberados por MAC (exceção do captive portal), com a validade resolvida."""
+    groups = groups if groups is not None else fgt.user_groups()
+    guests = {(u["group"], u["username"]): u for u in registered_users(groups) if u["kind"] == "guest"}
+    members = set(_names(fgt.address_group(MAC_GROUP).get("member")))
+    now = datetime.now()
+
+    devices = []
+    for a in fgt.addresses(MAC_PREFIX):
+        if not a.get("name", "").startswith(MAC_PREFIX):
+            continue
+        meta = _decode_comment(a.get("comment"))
+        mac = _address_mac(a)
+        if meta.get("group"):
+            account = guests.get((meta["group"], meta.get("user")))
+            expiration = account["expiration"] if account else None
+            expired = account is None or account["expired"]
+        else:
+            exp = _parse_fgt_date(meta.get("exp"))
+            expiration = exp.strftime("%Y-%m-%dT%H:%M") if exp else None
+            expired = not exp or exp <= now
+        devices.append({
+            "address": a["name"],
+            "mac": mac,
+            "username": meta.get("user", ""),
+            "group": meta.get("group"),
+            "follows_account": bool(meta.get("group")),
+            "hostname": meta.get("host", ""),
+            "expiration": expiration,
+            "expired": expired,
+            "active": a["name"] in members,
+            "random_mac": is_random_mac(mac),
+        })
+    return devices
+
+
+def remove_device(device):
+    if device["active"]:
+        fgt.remove_group_member(MAC_GROUP, device["address"])
+    fgt.delete_address(device["address"])
+
+
+def cleanup_devices():
+    """Remove liberações vencidas (conta expirada/removida) e endereços órfãos."""
+    removed = []
+    for d in allowed_devices():
+        if d["expired"] or not d["active"]:
+            remove_device(d)
+            removed.append(d)
+            app.logger.info("liberação de %s (%s) removida: %s", d["mac"], d["username"],
+                            "vencida" if d["expired"] else "fora do grupo")
+    return removed
+
+
 def connected_clients(groups=None):
     groups = groups if groups is not None else fgt.user_groups()
     google = saml_groups(groups)
     known = {u["username"] for u in registered_users(groups)}
+    devices = {d["mac"]: d for d in allowed_devices(groups) if d["active"]}
 
     # Quem fez login no captive portal aparece aqui, indexado por IP
     auth_by_ip = {a.get("ipaddr"): a for a in fgt.firewall_auth_users() if a.get("ipaddr")}
@@ -186,7 +281,11 @@ def connected_clients(groups=None):
         auth = auth_by_ip.get(c.get("ip"), {})
         username = c.get("user") or auth.get("username", "")
         auth_groups = _names(auth.get("usergroup"))
-        if not username:
+        mac = (c.get("mac") or "").lower()
+        device = devices.get(mac)
+        if device and not username:
+            username, source = device["username"], "mac"   # entrou sem portal, liberado por MAC
+        elif not username:
             source = "pending"      # associado ao SSID, ainda não fez login no portal
         elif google & set(auth_groups):
             source = "google"
@@ -200,7 +299,9 @@ def connected_clients(groups=None):
             "source": source,
             "auth_groups": auth_groups,
             "ip": c.get("ip", ""),
-            "mac": c.get("mac", ""),
+            "mac": mac,
+            "random_mac": is_random_mac(mac),
+            "allowed": bool(device),
             "hostname": c.get("hostname") or c.get("host", ""),
             "os": c.get("os", ""),
             "manufacturer": c.get("manufacturer", ""),
@@ -280,8 +381,12 @@ def api_users():
     groups = fgt.user_groups()
     users = registered_users(groups)
     online = {c["username"] for c in connected_clients(groups) if c["username"]}
+    devices = {}
+    for d in allowed_devices(groups):
+        devices[d["username"]] = devices.get(d["username"], 0) + 1
     for u in users:
         u["online"] = u["username"] in online
+        u["devices"] = devices.get(u["username"], 0)
     return jsonify(users)
 
 
@@ -356,7 +461,76 @@ def api_delete_user(group, guest_id):
     guest = _find_guest(groups, group, guest_id)
     fgt.delete_guest(group, guest_id)
     app.logger.info("%s removeu %s do grupo %s", session["user"], guest.get("user-id"), group)
+    for d in allowed_devices():
+        if d["group"] == group and d["username"] == guest.get("user-id"):
+            remove_device(d)
+            app.logger.info("liberação de %s removida junto com a conta", d["mac"])
     return jsonify(ok=True)
+
+
+@app.get("/api/devices")
+@login_required
+def api_devices():
+    online = {c["mac"] for c in connected_clients()}
+    devices = allowed_devices()
+    for d in devices:
+        d["online"] = d["mac"] in online
+    return jsonify(devices)
+
+
+@app.post("/api/devices")
+@login_required
+def api_allow_device():
+    data = request.get_json(silent=True) or {}
+    mac = normalize_mac(data.get("mac"))
+    username = _text(data, "username")
+    if not username:
+        raise BadRequest("Informe o usuário dono do aparelho.")
+    groups = fgt.user_groups()
+    if any(d["mac"] == mac for d in allowed_devices(groups)):
+        raise BadRequest("Este aparelho já está liberado.")
+
+    meta = {"user": username}
+    account = next((u for u in registered_users(groups)
+                    if u["kind"] == "guest" and u["editable"] and u["username"].lower() == username.lower()), None)
+    if account:
+        if account["expired"]:
+            raise BadRequest("A conta deste usuário está expirada. Renove antes de liberar o aparelho.")
+        meta.update(user=account["username"], group=account["group"])   # validade segue a conta
+    else:
+        meta["exp"] = _expiration(data)                                  # ex.: usuário do Google
+    meta["host"] = _text(data, "hostname")
+
+    name = MAC_PREFIX + mac.replace(":", "")
+    fgt.create_address({"name": name, "type": "mac", "macaddr": [{"macaddr": mac}],
+                        "comment": _encode_comment(meta)})
+    try:
+        fgt.add_group_member(MAC_GROUP, name)
+    except FortiGateError:
+        fgt.delete_address(name)
+        raise
+    app.logger.info("%s liberou o aparelho %s de %s (%s)", session["user"], mac, meta["user"],
+                    f"segue a conta {meta['group']}" if account else f"até {meta['exp']}")
+    return jsonify(ok=True, mac=mac), 201
+
+
+@app.delete("/api/devices/<mac>")
+@login_required
+def api_remove_device(mac):
+    mac = normalize_mac(mac)
+    device = next((d for d in allowed_devices() if d["mac"] == mac), None)
+    if not device:
+        raise BadRequest("Aparelho não encontrado.")
+    remove_device(device)
+    app.logger.info("%s removeu a liberação de %s (%s)", session["user"], mac, device["username"])
+    return jsonify(ok=True)
+
+
+@app.cli.command("cleanup-devices")
+def cleanup_devices_command():
+    """Remove liberações por MAC vencidas. Rodar periodicamente (systemd timer)."""
+    removed = cleanup_devices()
+    print(f"{len(removed)} liberação(ões) removida(s)")
 
 
 @app.get("/api/clients")

@@ -90,6 +90,28 @@ class FortiGate:
     def delete_guest(self, group, guest_id):
         return self._write("DELETE", self._guest_path(group, guest_id))
 
+    # --- Endereços MAC liberados (exceção do captive portal) ---
+    def addresses(self, prefix):
+        return self.get("cmdb/firewall/address", filter=f"name=@{prefix}")
+
+    def address_group(self, group):
+        results = self.get(f"cmdb/firewall/addrgrp/{quote(group, safe='')}")
+        if not results:
+            raise FortiGateError(f"Grupo de endereços '{group}' não existe no FortiGate.")
+        return results[0]
+
+    def create_address(self, address):
+        return self._write("POST", "cmdb/firewall/address", json=address)
+
+    def delete_address(self, name):
+        return self._write("DELETE", f"cmdb/firewall/address/{quote(name, safe='')}")
+
+    def add_group_member(self, group, name):
+        return self._write("POST", f"cmdb/firewall/addrgrp/{quote(group, safe='')}/member", json={"name": name})
+
+    def remove_group_member(self, group, name):
+        return self._write("DELETE", f"cmdb/firewall/addrgrp/{quote(group, safe='')}/member/{quote(name, safe='')}")
+
     # --- Estado em tempo real (monitor) ---
     def wifi_clients(self):
         return self.get("monitor/wifi/client")

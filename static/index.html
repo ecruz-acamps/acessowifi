@@ -27,6 +27,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="clients" aria-selected="true">Conectados agora</button>
       <button role="tab" data-tab="users">Usuários cadastrados</button>
+      <button role="tab" data-tab="devices">Aparelhos liberados</button>
       <button role="tab" data-tab="aps">Access Points</button>
     </nav>
 
@@ -42,7 +43,7 @@
       <table>
         <thead><tr>
           <th>Usuário</th><th>Dispositivo</th><th>IP / MAC</th><th>AP</th>
-          <th>Sinal</th><th>Taxa</th><th>Conectado há</th>
+          <th>Sinal</th><th>Taxa</th><th>Conectado há</th><th></th>
         </tr></thead>
         <tbody id="clients-body"></tbody>
       </table>
@@ -54,6 +55,13 @@
           <th>Usuário</th><th>Equipe / Grupo</th><th>Contato</th><th>Validade</th><th>Status</th><th></th>
         </tr></thead>
         <tbody id="users-body"></tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap" data-panel="devices" hidden>
+      <table>
+        <thead><tr><th>Aparelho</th><th>MAC</th><th>Usuário</th><th>Válido até</th><th>Status</th><th></th></tr></thead>
+        <tbody id="devices-body"></tbody>
       </table>
     </div>
 
@@ -99,6 +107,39 @@
       <div class="actions">
         <button type="button" class="ghost" data-close>Cancelar</button>
         <button type="submit" id="user-submit">Cadastrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="device-dialog">
+    <form id="device-form" method="dialog">
+      <h2>Permitir sempre este aparelho</h2>
+      <p class="muted">O aparelho passa a navegar sem passar pelo captive portal.</p>
+      <p id="device-error" class="error" hidden></p>
+      <dl class="cred">
+        <dt>Aparelho</dt><dd id="device-host"></dd>
+        <dt>MAC</dt><dd id="device-mac" class="mono"></dd>
+        <dt>Usuário</dt><dd id="device-user"></dd>
+      </dl>
+      <p id="device-random" class="warning" hidden>
+        Este aparelho usa <strong>MAC privado/aleatório</strong>. Se a pessoa "esquecer a rede" ou o celular trocar o
+        endereço (iPhone em modo "rotativo"), ele volta a cair no portal. Para liberar de vez, desative o
+        "Endereço privado" / "MAC aleatório" desta rede no celular e libere de novo.
+      </p>
+      <p id="device-follows" class="muted"></p>
+      <fieldset id="device-exp-wrap">
+        <legend>Liberado até</legend>
+        <input name="expiration" type="datetime-local">
+        <div class="presets">
+          <button type="button" class="ghost small" data-days="7">+7 dias</button>
+          <button type="button" class="ghost small" data-days="30">+30 dias</button>
+          <button type="button" class="ghost small" data-days="90">+90 dias</button>
+          <button type="button" class="ghost small" data-days="365">+1 ano</button>
+        </div>
+      </fieldset>
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Cancelar</button>
+        <button type="submit" id="device-submit">Permitir sempre</button>
       </div>
     </form>
   </dialog>

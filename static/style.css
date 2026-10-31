@@ -103,3 +103,5 @@ dialog legend { color: var(--muted); font-size: 13px; padding: 0 4px; }
 .cred { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 16px 0; }
 .cred dt { color: var(--muted); }
 .cred dd { margin: 0; font-size: 16px; font-weight: 600; }
+
+.warning { background: var(--warn-bg); color: var(--warn); padding: 10px 12px; border-radius: 6px; margin: 0; font-size: 13px; }

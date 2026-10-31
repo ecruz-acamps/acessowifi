@@ -1,0 +1,16 @@
+[Unit]
+Description=Remove liberações de MAC vencidas (Acesso Wi-Fi)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=acessowifi
+Group=acessowifi
+WorkingDirectory=/opt/acessowifi
+EnvironmentFile=/opt/acessowifi/.env
+Environment=FLASK_APP=app
+ExecStart=/opt/acessowifi/.venv/bin/flask cleanup-devices
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
