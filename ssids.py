@@ -28,13 +28,60 @@ RADIOS = ("radio-1", "radio-2", "radio-3", "radio-4")
 SCHED_FMT = "%H:%M %Y/%m/%d"   # formato do FortiOS para agendamento único
 INPUT_FMT = "%Y-%m-%dT%H:%M"   # formato do <input type=datetime-local>
 
-# Campos de segurança/rede copiados do SSID principal
-COPY_FIELDS = (
+# Rede: sempre copiada do SSID principal (é o que coloca o SSID novo na mesma rede)
+NETWORK_FIELDS = ("local-bridging", "vlanid", "intra-vap-privacy")
+# Segurança: copiada do principal só no acesso "igual ao principal"
+SECURITY_FIELDS = (
     "security", "captive-portal", "portal-type", "auth", "selected-usergroups", "usergroup",
     "security-exempt-list", "security-redirect-url", "external-web", "external-logout",
-    "portal-message-override-group", "local-authentication", "intra-vap-privacy",
-    "local-bridging", "vlanid", "pmf",
+    "portal-message-override-group", "local-authentication", "pmf",
 )
+ACCESS = ("same", "open", "wpa2")   # igual ao principal, sem senha, WPA2 com senha
+
+
+def access_of(vap):
+    """Tipo de acesso de um SSID: portal, open, wpa2, enterprise ou o valor bruto."""
+    sec = vap.get("security", "")
+    if sec == "captive-portal" or vap.get("captive-portal") == "enable":
+        return "portal"
+    if sec == "open":
+        return "open"
+    if "personal" in sec:
+        return "wpa2"
+    if "enterprise" in sec:
+        return "enterprise"
+    return sec or "?"
+
+
+def _security_body(main, data, current=None):
+    """Campos de segurança do SSID para o acesso escolhido."""
+    kind = data.get("security", "same")
+    if kind not in ACCESS:
+        raise SSIDError("Escolha o tipo de acesso do SSID.")
+    if kind == "same":
+        return {k: main[k] for k in SECURITY_FIELDS if k in main}
+
+    ref = {**main, **(current or {})}
+    body = {}
+    # Sem portal: desliga o captive portal e tira os grupos/lista de exceção copiados do principal
+    if "captive-portal" in ref:
+        body["captive-portal"] = "disable"
+    if ref.get("selected-usergroups"):
+        body["selected-usergroups"] = []
+    if ref.get("security-exempt-list"):
+        body["security-exempt-list"] = ""
+    if kind == "open":
+        body["security"] = "open"
+        return body
+
+    password = str(data.get("passphrase") or "")
+    keep = current is not None and access_of(current) == "wpa2" and not password
+    if not keep and not (8 <= len(password) <= 63 and password.isascii() and password.isprintable()):
+        raise SSIDError("A senha WPA2 deve ter de 8 a 63 caracteres (sem acentos).")
+    body.update({"security": "wpa2-only-personal", "encrypt": "AES"})
+    if not keep:
+        body["passphrase"] = password
+    return body
 
 
 class SSIDError(Exception):
@@ -220,6 +267,7 @@ def list_ssids(fgt):
             "ssid": v.get("ssid") or v["name"],
             "main": v["name"] == main,
             "managed": v["name"].startswith(PREFIX),
+            "access": access_of(v),
             "aps": where.get(v["name"], []),
             **_describe_schedule(v, schedules, now),
         })
@@ -265,7 +313,8 @@ def create_ssid(fgt, data):
         schedule = _schedule_for(fgt, name, data)
         if schedule.startswith(PREFIX) and schedule != OFF_SCHEDULE:
             undo.append(lambda: fgt.remove(ONETIME, schedule))
-        body = {k: main[k] for k in COPY_FIELDS if k in main}
+        body = {k: main[k] for k in NETWORK_FIELDS if k in main}
+        body.update(_security_body(main, data))
         body.update({"name": name, "ssid": text, "broadcast-ssid": "enable", "schedule": schedule})
         fgt.create(VAP, body)
         undo.append(lambda: fgt.remove(VAP, name))
@@ -299,6 +348,8 @@ def update_ssid(fgt, name, data):
     body = {}
     if "ssid" in data:
         body["ssid"] = _valid_ssid_text(fgt, data["ssid"], ignore=name)
+    if "security" in data:
+        body.update(_security_body(fgt.get_one(VAP, main_vap_name()) or {}, data, current=vap))
     if "mode" in data:
         old = (vap.get("schedule") or "").strip('"')
         body["schedule"] = _schedule_for(fgt, name, data)

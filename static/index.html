@@ -11,7 +11,10 @@
     <h1>Acesso Wi-Fi</h1>
     <div class="header-right">
       <span id="updated" class="muted"></span>
-      <button id="refresh" type="button" class="ghost">Atualizar</button>
+      <button id="updates-btn" type="button" class="ghost with-count" title="Atualizações do painel">
+        Atualizações<span id="updates-count" class="count" hidden></span>
+      </button>
+      <button id="refresh" type="button" class="ghost">Recarregar</button>
       <form method="post" action="/logout"><button type="submit" class="ghost">Sair</button></form>
     </div>
   </header>
@@ -71,12 +74,12 @@
       <p id="ssid-notice" class="warning" hidden></p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>SSID</th><th>Quando</th><th>FortiAPs</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>SSID</th><th>Acesso</th><th>Quando</th><th>FortiAPs</th><th>Status</th><th></th></tr></thead>
           <tbody id="ssids-body"></tbody>
         </table>
       </div>
-      <p class="muted small-note">Os SSIDs novos usam o mesmo acesso e a mesma rede do SSID principal (captive portal com
-        conta cadastrada ou Google). O FortiGate liga e desliga cada SSID sozinho no horário, mesmo com o painel fora do ar.</p>
+      <p class="muted small-note">Os SSIDs novos ficam na mesma rede do SSID principal; o acesso (captive portal, sem senha
+        ou WPA2) é escolhido em cada um. O FortiGate liga e desliga cada SSID sozinho no horário, mesmo com o painel fora do ar.</p>
     </div>
 
     <div class="table-wrap" data-panel="aps" hidden>
@@ -167,6 +170,20 @@
       </label>
 
       <fieldset>
+        <legend>Acesso</legend>
+        <label class="check"><input type="radio" name="security" value="same" checked> Igual ao principal
+          (captive portal: conta cadastrada ou Google)</label>
+        <label class="check"><input type="radio" name="security" value="wpa2"> WPA2 com senha</label>
+        <label data-wpa2>Senha do Wi-Fi (8 a 63 caracteres)
+          <input name="passphrase" minlength="8" maxlength="63" autocomplete="new-password">
+        </label>
+        <label class="check"><input type="radio" name="security" value="open"> Sem senha (rede aberta)</label>
+        <p id="ssid-open-warning" class="warning" hidden>Rede aberta: qualquer pessoa por perto conecta, e o tráfego
+          não é criptografado. Como fica na mesma rede do SSID principal, ela pode dar acesso à internet sem login,
+          dependendo de onde o captive portal está configurado.</p>
+      </fieldset>
+
+      <fieldset>
         <legend>Quando fica no ar</legend>
         <label class="check"><input type="radio" name="mode" value="window" checked> Num período</label>
         <div class="row" data-window>
@@ -187,6 +204,23 @@
         <button type="submit" id="ssid-submit">Criar SSID</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="updates-dialog">
+    <div class="dialog-body">
+      <h2>Atualizações do painel</h2>
+      <p id="updates-message" class="muted"></p>
+      <p class="muted small-note">Instalada: <span id="updates-current" class="mono"></span></p>
+      <ul id="updates-list" class="commit-list"></ul>
+      <pre id="updates-log" class="update-log" hidden></pre>
+      <p class="muted small-note">Antes de trocar a versão, o servidor testa se o painel novo funciona. Se algo falhar,
+        ele volta sozinho para a versão anterior. Durante a instalação, o painel fica fora do ar por alguns segundos.</p>
+      <div class="actions">
+        <button type="button" class="ghost" id="updates-check">Verificar agora</button>
+        <button type="button" class="ghost" data-close>Fechar</button>
+        <button type="button" id="updates-install">Instalar</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="cred-dialog">

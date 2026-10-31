@@ -1,0 +1,9 @@
+[Unit]
+Description=Pedido de instalação de atualização feito pelo painel
+
+[Path]
+PathExists=/var/lib/acessowifi-ctl/install
+Unit=acessowifi-update-install.service
+
+[Install]
+WantedBy=multi-user.target

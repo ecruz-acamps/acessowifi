@@ -6,7 +6,7 @@ Painel interno para o Wi-Fi do acampamento (FortiGate 40F + FortiAP, captive por
 - Renovar validade, gerar nova senha, remover acesso.
 - **Permitir sempre** um aparelho: o celular é liberado pelo MAC e não passa mais pelo captive portal.
 - Ver **quem está conectado agora**: conta cadastrada, Google Workspace (SAML), liberado por MAC ou ainda sem login.
-- **SSIDs extras**: criar redes com o mesmo acesso e a mesma rede do SSID principal, em FortiAPs escolhidos, num período (início e fim) ou ligadas e desligadas na hora. O FortiGate cuida do horário sozinho.
+- **SSIDs extras**: criar redes na mesma rede do SSID principal, com acesso igual ao dele (captive portal), WPA2 com senha ou sem senha, em FortiAPs escolhidos, num período (início e fim) ou ligadas e desligadas na hora. O FortiGate cuida do horário sozinho.
 - Ver os FortiAPs e quantos clientes cada um tem.
 
 Roda no seu servidor, sem nada na nuvem.
@@ -66,27 +66,29 @@ Se algo não funcionar, veja **[Problemas comuns](docs/FORTIGATE.md#problemas-co
 
 Não publique o painel na internet. Para usar um certificado próprio no lugar do autoassinado, substitua `/etc/ssl/acessowifi/cert.pem` e `key.pem` e rode `systemctl reload nginx`.
 
-## Atualização automática
+## Atualizações pelo botão
 
-Se você aceitou na instalação, o servidor consulta o GitHub **a cada 5 minutos** e instala sozinho cada commit novo da branch `master`:
+O botão **Atualizações**, no topo do painel, mostra um número quando há commits novos no GitHub: **1** para uma atualização, **2** para duas, e assim por diante. O servidor só *verifica* (de hora em hora ou quando você clica em **Verificar agora**); **nada é instalado sem você clicar em Instalar**.
 
+Ao clicar em **Instalar**, o servidor:
 1. baixa o código e instala as bibliotecas novas, se `requirements.txt` mudou;
-2. **testa se o painel carrega** antes de reiniciar;
-3. reinicia e confirma que o painel responde;
-4. **se algo falhar, volta para a versão anterior** e não tenta de novo aquele commit; o próximo commit é tentado normalmente.
+2. **testa se o painel carrega** antes de trocar a versão;
+3. reinicia e confirma que o painel responde (ele fica fora do ar por alguns segundos);
+4. **se algo falhar, volta para a versão anterior**, e a janela mostra o motivo.
 
-A configuração (`.env`: FortiGate, token, senha) nunca é tocada.
+No final, a página recarrega sozinha já na versão nova. A configuração (`.env`: FortiGate, token, senha) nunca é tocada.
 
-| Para | Comando (como root) |
+O painel não tem privilégio para instalar nada: o botão só grava um pedido em `/var/lib/acessowifi-ctl`, e um serviço do sistema (`acessowifi-update-install`) faz a instalação como root.
+
+| Pelo terminal (como root) | |
 |---|---|
-| Ver a versão instalada e o histórico | `acessowifi atualizacoes` |
-| Atualizar agora, sem esperar os 5 minutos | `acessowifi atualizar` |
-| Ligar ou desligar | `acessowifi auto-atualizar liga` / `desliga` |
+| `acessowifi verificar` | consulta o GitHub e conta as atualizações |
+| `acessowifi atualizacoes` | versão instalada, atualizações disponíveis e resultado da última instalação |
+| `acessowifi atualizar` | instala, como o botão |
 
 Cuidados:
-- **Quem pode enviar commits para o repositório controla o servidor.** Use autenticação em dois fatores no GitHub e só dê acesso de escrita a quem você confia.
-- Faça as melhorias numa branch e só junte na `master` quando estiverem testadas (`DEMO_MODE=1`, abaixo).
-- Funções que precisam de **permissões novas no FortiGate** (por exemplo, criar SSIDs) exigem rodar `./deploy/install.sh` uma vez, respondendo **sim** para refazer a configuração. A atualização automática não altera o FortiGate.
+- Quem pode enviar commits para o repositório decide o que o botão instala. Use autenticação em dois fatores no GitHub.
+- Funções que precisam de **permissões novas no FortiGate** (por exemplo, a aba SSIDs) exigem rodar `./deploy/install.sh` uma vez, respondendo **sim** para refazer a configuração. O botão não altera o FortiGate.
 - Repositório **privado**: o servidor precisa de credencial de leitura (deploy key) para consultar o GitHub.
 
 ## Como funciona
@@ -123,7 +125,7 @@ O assistente de configuração também tem um modo simulado: `.venv/bin/python d
 | `ssids.py` | SSIDs extras: criação, agendamento e FortiAPs |
 | `static/` | Páginas e JavaScript |
 | `deploy/install.sh` | Instalador |
-| `deploy/acessowifi-update.sh` | Atualização automática pelo GitHub (timer a cada 5 min) |
+| `deploy/acessowifi-update.sh` | Verifica e instala atualizações do GitHub (botão do painel) |
 | `deploy/acessowifi-cli.sh` | Comando `acessowifi` (status, testar, log, senha, atualizar...) |
 | `deploy/configure.py` | Assistente de perguntas e configuração automática do FortiGate |
 | `deploy/fortigate-setup.conf` | Comandos de CLI para o modo manual |

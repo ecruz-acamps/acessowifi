@@ -1,6 +1,7 @@
 const REFRESH_MS = 30_000;
 const state = { tab: "clients", clients: [], users: [], devices: [], aps: [], groups: [], editing: null, device: null,
-  ssid: { ready: false, reason: "", aps: [], ssids: [] }, ssidError: "", editingSsid: null };
+  ssid: { ready: false, reason: "", aps: [], ssids: [] }, ssidError: "", editingSsid: null,
+  updates: { state: "unavailable", pending: [] } };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -201,6 +202,7 @@ function renderAps(q) {
 }
 
 const SSID_STATUS = { "no ar": "ok", agendado: "info", encerrado: "neutral", desligado: "neutral" };
+const SSID_ACCESS = { portal: "Captive portal", open: "Sem senha", wpa2: "WPA2 com senha", enterprise: "WPA2 Enterprise" };
 
 function renderSsids(q) {
   const body = $("#ssids-body");
@@ -210,7 +212,7 @@ function renderSsids(q) {
   $("#ssid-notice").hidden = !notice;
   const apName = Object.fromEntries(state.ssid.aps.map((a) => [a.id, a.name]));
   const rows = state.ssid.ssids.filter((x) => matches(x, q));
-  if (!rows.length) return emptyRow(body, 5, "Nenhum SSID.");
+  if (!rows.length) return emptyRow(body, 6, "Nenhum SSID.");
 
   for (const x of rows) {
     const tr = document.createElement("tr");
@@ -230,6 +232,7 @@ function renderSsids(q) {
     }
     tr.append(
       cell(el("div", x.ssid, "strong"), x.main ? el("small", "SSID principal", "muted") : !x.managed ? el("small", "criado fora do painel", "muted") : null),
+      cell(SSID_ACCESS[x.access] || x.access),
       cell(when),
       cell(aps),
       cell(badge(x.status, SSID_STATUS[x.status] || "neutral")),
@@ -278,6 +281,7 @@ async function load() {
       ["/api/clients", "/api/users", "/api/devices", "/api/aps", "/api/groups"].map((u) => api(u)),
     );
     showError("");
+    loadUpdates();
     // SSIDs à parte: sem a permissão nova no token, só esta aba mostra o aviso
     await api("/api/ssids").then((d) => { state.ssid = d; state.ssidError = ""; })
       .catch((e) => { state.ssidError = e.message; });
@@ -449,8 +453,15 @@ function syncWindowFields() {
   const isWindow = sf.mode.value === "window";
   ssidForm.querySelector("[data-window]").hidden = !isWindow;
   sf.start.required = sf.end.required = isWindow;
+  const sec = sf.security.value;
+  ssidForm.querySelector("[data-wpa2]").hidden = sec !== "wpa2";
+  // Na edição de um SSID que já é WPA2, a senha em branco mantém a atual
+  const keeps = state.editingSsid?.access === "wpa2";
+  sf.passphrase.required = sec === "wpa2" && !keeps;
+  sf.passphrase.placeholder = keeps ? "deixe em branco para manter a senha atual" : "";
+  $("#ssid-open-warning").hidden = sec !== "open";
 }
-ssidForm.querySelectorAll("input[name=mode]").forEach((r) => r.addEventListener("change", syncWindowFields));
+ssidForm.querySelectorAll("input[name=mode], input[name=security]").forEach((r) => r.addEventListener("change", syncWindowFields));
 
 function openSsidDialog(x = null) {
   state.editingSsid = x;
@@ -470,6 +481,8 @@ function openSsidDialog(x = null) {
   sf.ssid.value = x ? x.ssid : "";
   const mode = x && ["on", "off", "window"].includes(x.mode) ? x.mode : "window";
   ssidForm.querySelector(`input[name=mode][value=${mode}]`).checked = true;
+  const access = !x || x.access === "portal" ? "same" : x.access === "open" ? "open" : "wpa2";
+  ssidForm.querySelector(`input[name=security][value=${access}]`).checked = true;
   const start = new Date(); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
   sf.start.value = x?.start || localInput(start);
   sf.end.value = x?.end || endOfDayPlus(2);
@@ -485,7 +498,9 @@ ssidForm.addEventListener("submit", async (ev) => {
     ssid: sf.ssid.value.trim(),
     mode: sf.mode.value,
     aps: [...ssidForm.querySelectorAll("input[name=aps]:checked")].map((i) => i.value),
+    security: sf.security.value,
   };
+  if (payload.security === "wpa2" && sf.passphrase.value) payload.passphrase = sf.passphrase.value;
   if (payload.mode === "window") Object.assign(payload, { start: sf.start.value, end: sf.end.value });
   const submit = $("#ssid-submit");
   submit.disabled = true;
@@ -522,6 +537,92 @@ async function removeSsid(x) {
 }
 
 $("#new-ssid").addEventListener("click", () => openSsidDialog());
+
+// --- Atualizações do painel ---
+
+const updatesDialog = $("#updates-dialog");
+let updatesPoll = null;
+
+async function loadUpdates() {
+  try {
+    state.updates = await api("/api/updates");
+  } catch {
+    return;   // painel reiniciando durante a instalação: tenta no próximo ciclo
+  }
+  renderUpdates();
+}
+
+function renderUpdates() {
+  const u = state.updates;
+  const n = (u.pending || []).length;
+  $("#updates-count").textContent = n > 9 ? "9+" : String(n);
+  $("#updates-count").hidden = n === 0;
+  $("#updates-btn").title = n ? `${n} atualização(ões) disponível(is)` : "Atualizações do painel";
+  if (!updatesDialog.open) return;
+
+  const busy = u.state === "installing" || u.state === "checking";
+  $("#updates-message").textContent = u.message || "";
+  $("#updates-current").textContent = u.current?.hash ? `${u.current.hash} ${u.current.subject || ""}` : "–";
+  const list = $("#updates-list");
+  list.replaceChildren(...(u.pending || []).map((c) => {
+    const li = el("li", c.subject);
+    li.append(el("small", `${c.hash} · ${c.date ? new Date(c.date).toLocaleString("pt-BR") : ""}`));
+    return li;
+  }));
+  const showLog = (u.state === "installing" || u.state === "failed" || u.state === "ok") && (u.log || []).length;
+  $("#updates-log").textContent = showLog ? u.log.join("\n") : "";
+  $("#updates-log").hidden = !showLog;
+  $("#updates-install").hidden = !n;
+  $("#updates-install").disabled = busy || u.state === "unavailable";
+  $("#updates-install").textContent = busy && u.state === "installing" ? "Instalando…"
+    : n === 1 ? "Instalar 1 atualização" : `Instalar ${n} atualizações`;
+  $("#updates-check").disabled = busy || u.state === "unavailable";
+}
+
+function pollUpdates(until) {
+  clearInterval(updatesPoll);
+  const started = Date.now();
+  updatesPoll = setInterval(async () => {
+    await loadUpdates();
+    if (until(state.updates) || Date.now() - started > 180_000) {
+      clearInterval(updatesPoll);
+      if (state.updates.state === "ok") setTimeout(() => location.reload(), 1500);   // carrega a versão nova
+    }
+  }, 3000);
+}
+
+$("#updates-btn").addEventListener("click", async () => {
+  updatesDialog.showModal();
+  renderUpdates();
+  await loadUpdates();
+});
+
+$("#updates-check").addEventListener("click", async () => {
+  const before = state.updates.checked_at;
+  try {
+    await api("/api/updates/check", { method: "POST" });
+    state.updates = { ...state.updates, state: "checking", message: "Consultando o GitHub…" };
+    renderUpdates();
+    pollUpdates((u) => u.checked_at !== before && u.state !== "checking");
+  } catch (e) {
+    $("#updates-message").textContent = e.message;
+  }
+});
+
+$("#updates-install").addEventListener("click", async () => {
+  const n = state.updates.pending.length;
+  if (!confirm(`Instalar ${n} atualização(ões)? O painel fica fora do ar por alguns segundos.`)) return;
+  const before = state.updates.checked_at;
+  try {
+    await api("/api/updates/install", { method: "POST" });
+    state.updates = { ...state.updates, state: "installing", message: "Instalando a atualização…", log: [] };
+    renderUpdates();
+    // espera um status mais novo que o do clique (o anterior pode ser um "ok" antigo)
+    pollUpdates((u) => u.checked_at !== before && (u.state === "ok" || u.state === "failed"));
+  } catch (e) {
+    $("#updates-message").textContent = e.message;
+  }
+});
 
 const credDialog = $("#cred-dialog");
 

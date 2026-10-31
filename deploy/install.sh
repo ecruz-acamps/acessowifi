@@ -61,31 +61,28 @@ STATE=/var/lib/acessowifi
 mkdir -p "$STATE" && chmod 700 "$STATE"
 sha256sum "$APP_DIR/requirements.txt" | cut -d' ' -f1 > "$STATE/requirements.sha"
 
-# ---------------------------------------------------------------- atualização automática
-# Uma cópia própria do repositório em $STATE/repo; o timer consulta o GitHub e instala os commits novos.
-AUTO_UPDATE=$(cat "$STATE/auto-update" 2>/dev/null || true)
+# ---------------------------------------------------------------- atualizações pelo painel
+# Uma cópia própria do repositório em $STATE/repo. O servidor só VERIFICA se há commits novos
+# (de hora em hora ou pelo botão); instalar é sempre pelo botão "Atualizações" do painel.
+CTL=/var/lib/acessowifi-ctl
+mkdir -p "$CTL" && chown root:"$SVC_USER" "$CTL" && chmod 770 "$CTL"
+UPDATES=0
 if git -C "$SRC_DIR" rev-parse --git-dir >/dev/null 2>&1 && ORIGIN=$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null); then
   BRANCH=$(git -C "$SRC_DIR" rev-parse --abbrev-ref HEAD)
-  if [ -z "$AUTO_UPDATE" ]; then
-    say "Atualização automática"
-    info "O servidor pode consultar o GitHub a cada 5 minutos e instalar sozinho cada commit novo"
-    info "da branch '$BRANCH' (com teste e volta automática para a versão anterior se algo falhar)."
-    info "Atenção: quem puder enviar commits para esse repositório passa a controlar este servidor."
-    yes_no "Ativar a atualização automática?" S && AUTO_UPDATE=1 || AUTO_UPDATE=0
-    echo "$AUTO_UPDATE" > "$STATE/auto-update"
-  fi
   if [ ! -d "$STATE/repo/.git" ]; then
     git clone -q --branch "$BRANCH" "$ORIGIN" "$STATE/repo" 2>/dev/null \
-      || { info "Não consegui clonar $ORIGIN (repositório privado?). Atualização automática desativada."; AUTO_UPDATE=0; }
+      || info "Não consegui clonar $ORIGIN (repositório privado?). O botão de atualizações fica desativado."
   else
     git -C "$STATE/repo" remote set-url origin "$ORIGIN"
     git -C "$STATE/repo" fetch -q origin "$BRANCH" 2>/dev/null || true
   fi
-  # A cópia fica na mesma versão que acabou de ser instalada
-  [ -d "$STATE/repo/.git" ] && git -C "$STATE/repo" reset -q --hard "$(git -C "$SRC_DIR" rev-parse HEAD)" 2>/dev/null || true
-else
-  AUTO_UPDATE=0
+  if [ -d "$STATE/repo/.git" ]; then
+    # A cópia fica na mesma versão que acabou de ser instalada
+    git -C "$STATE/repo" reset -q --hard "$(git -C "$SRC_DIR" rev-parse HEAD)" 2>/dev/null || true
+    UPDATES=1
+  fi
 fi
+rm -f "$STATE/auto-update"   # da versão antiga, que instalava sozinha
 
 # ---------------------------------------------------------------- configuração
 RECONFIGURE=1
@@ -253,11 +250,12 @@ if [ "$HAS_SYSTEMD" = 1 ]; then
   cp "$APP_DIR"/deploy/*.service "$APP_DIR"/deploy/*.timer /etc/systemd/system/
   systemctl daemon-reload
   systemctl enable -q acessowifi acessowifi-cleanup.timer
-  if [ "$AUTO_UPDATE" = 1 ]; then
-    systemctl enable -q --now acessowifi-update.timer
-    info "Atualização automática ativa: o GitHub é consultado a cada 5 minutos."
+  if [ "$UPDATES" = 1 ]; then
+    systemctl enable -q --now acessowifi-update.timer acessowifi-update.path acessowifi-update-install.path
+    /usr/local/sbin/acessowifi-update --verificar >/dev/null 2>&1 || true
+    info "Botão de atualizações ativo: o painel avisa quando houver commits novos no GitHub."
   else
-    systemctl disable -q --now acessowifi-update.timer 2>/dev/null || true
+    systemctl disable -q --now acessowifi-update.timer acessowifi-update.path acessowifi-update-install.path 2>/dev/null || true
   fi
   systemctl restart acessowifi
   systemctl start acessowifi-cleanup.timer
@@ -308,7 +306,7 @@ info "  acessowifi status    situação do painel, do nginx e da limpeza automá
 info "  acessowifi testar    testa a conexão com o FortiGate (--escrita para o teste completo)"
 info "  acessowifi log       acompanha o log do painel"
 info "  acessowifi reiniciar reinicia o painel"
-info "  acessowifi atualizacoes  histórico das atualizações automáticas"
+info "  acessowifi atualizacoes  versão instalada e atualizações disponíveis"
 info "  Ver o log:           journalctl -u acessowifi -f"
 info "  Mudar configuração:  ./deploy/install.sh e responda sim para refazer"
 info "  Atualizar:           git pull && ./deploy/install.sh"

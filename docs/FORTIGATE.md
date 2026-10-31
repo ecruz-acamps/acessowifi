@@ -218,7 +218,10 @@ A validade das contas é gravada na **hora local**. O FortiGate (*System > Setti
 
 A aba **SSIDs** do painel cria redes Wi-Fi adicionais, por exemplo "Acampamento-Palestra", só no AP do auditório e só durante o evento:
 
-- **Acesso:** o SSID novo copia a segurança do principal: mesmo captive portal, grupos (contas cadastradas e Google) e lista de exceção. Nada de senha compartilhada.
+- **Acesso**, escolhido em cada SSID:
+  - **Igual ao principal:** copia o captive portal, os grupos (contas cadastradas e Google) e a lista de exceção;
+  - **WPA2 com senha:** `security wpa2-only-personal`, com a senha definida no painel. Ela fica só no FortiGate e não volta para o navegador;
+  - **Sem senha:** rede aberta. Ela fica na mesma rede do principal, então pode dar internet **sem login** se o captive portal estiver configurado no SSID e não no software switch.
 - **Quando fica no ar:** num período (início e fim), ligado até você desligar, ou desligado. O painel usa o **agendamento nativo do SSID** (campo `schedule` em `config wireless-controller vap`) com agendamentos únicos do firewall (`aw-<nome>`), então **o FortiGate liga e desliga sozinho**, mesmo com o painel fora do ar. "Desligado" aponta para o agendamento vencido `aw-desligado`.
 - **Em quais FortiAPs:** cada AP passa a ter a própria lista de SSIDs por rádio (*Override* em *Managed FortiAPs*). Depois de cada mudança, o painel confere se o **SSID principal continua em todos os APs onde estava**; se não, desfaz a mudança.
 - O painel só altera ou remove SSIDs criados por ele (nome interno começando com `aw-`). O principal e os outros SSIDs aparecem na lista, mas não podem ser alterados pela aba.

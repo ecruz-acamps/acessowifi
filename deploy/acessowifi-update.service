@@ -1,8 +1,8 @@
 [Unit]
-Description=Atualização automática do painel Acesso Wi-Fi (GitHub)
+Description=Verifica atualizações do painel Acesso Wi-Fi no GitHub (não instala)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/acessowifi-update
+ExecStart=/usr/local/sbin/acessowifi-update --verificar

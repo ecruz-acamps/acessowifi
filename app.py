@@ -1,4 +1,5 @@
 """Painel de acesso Wi-Fi — usuários do captive portal e clientes conectados no FortiGate."""
+import json
 import logging
 import os
 import re
@@ -535,6 +536,69 @@ def api_remove_device(mac):
         raise BadRequest("Aparelho não encontrado.")
     remove_device(device)
     app.logger.info("%s removeu a liberação de %s (%s)", session["user"], mac, device["username"])
+    return jsonify(ok=True)
+
+
+# --- Atualizações (botão no painel) ---
+# O painel não tem privilégio para instalar: grava um pedido em CTL_DIR e as units
+# acessowifi-update*.path executam o deploy/acessowifi-update.sh como root.
+CTL_DIR = Path(os.getenv("ACESSOWIFI_CTL", "/var/lib/acessowifi-ctl"))
+_demo_updates = {"state": "idle", "message": "2 atualização(ões) disponível(is).", "log": [],
+                 "current": {"hash": "a1b2c3d", "subject": "Versão instalada", "date": "2026-10-30T10:00:00-03:00"},
+                 "pending": [{"hash": "e4f5a6b", "subject": "Aba SSIDs: escolha do tipo de acesso",
+                              "date": "2026-10-31T09:12:00-03:00"},
+                             {"hash": "c7d8e9f", "subject": "Interface: botão de atualizações",
+                              "date": "2026-10-31T10:40:00-03:00"}],
+                 "checked_at": int(time.time()), "_done_at": None}
+
+
+def _update_status():
+    if os.getenv("DEMO_MODE") == "1":
+        st = _demo_updates
+        if st["_done_at"] and time.time() >= st["_done_at"]:
+            st.update(state="ok", message="Atualização instalada.", _done_at=None, checked_at=int(time.time()),
+                      current=st["pending"][-1], pending=[], log=st["log"] + ["Atualizado."])
+        return {k: v for k, v in st.items() if not k.startswith("_")}
+    try:
+        with open(CTL_DIR / "status.json") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"state": "unavailable", "pending": [],
+                "message": "Atualizações pelo painel não configuradas. Rode ./deploy/install.sh no servidor."}
+
+
+def _request(kind):
+    if os.getenv("DEMO_MODE") == "1":
+        if kind == "install" and _demo_updates["pending"]:
+            _demo_updates.update(state="installing", message="Instalando a atualização...",
+                                 log=["Atualizando..."], _done_at=time.time() + 4, checked_at=int(time.time()) + 1)
+        return
+    if not CTL_DIR.is_dir():
+        raise BadRequest("Atualizações pelo painel não configuradas. Rode ./deploy/install.sh no servidor.")
+    (CTL_DIR / kind).write_text(session["user"])
+
+
+@app.get("/api/updates")
+@login_required
+def api_updates():
+    return jsonify(_update_status())
+
+
+@app.post("/api/updates/check")
+@login_required
+def api_updates_check():
+    _request("check")
+    return jsonify(ok=True)
+
+
+@app.post("/api/updates/install")
+@login_required
+def api_updates_install():
+    status = _update_status()
+    if status.get("state") in ("installing", "checking"):
+        raise BadRequest("Já existe uma operação de atualização em andamento.")
+    _request("install")
+    app.logger.info("%s pediu a instalação de %d atualização(ões)", session["user"], len(status.get("pending", [])))
     return jsonify(ok=True)
 
 

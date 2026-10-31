@@ -1,0 +1,8 @@
+[Unit]
+Description=Instala a atualização do painel Acesso Wi-Fi (pedida pelo botão do painel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/acessowifi-update --instalar

@@ -1,10 +1,10 @@
 [Unit]
-Description=Verifica atualizações do painel Acesso Wi-Fi no GitHub a cada 5 minutos
+Description=Verifica de hora em hora se há atualizações do painel Acesso Wi-Fi (só avisa; não instala)
 
 [Timer]
-OnBootSec=3min
-OnUnitActiveSec=5min
-RandomizedDelaySec=30
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
 
 [Install]
 WantedBy=timers.target
