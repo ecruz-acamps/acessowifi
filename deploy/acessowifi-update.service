@@ -1,0 +1,8 @@
+[Unit]
+Description=Atualização automática do painel Acesso Wi-Fi (GitHub)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/acessowifi-update

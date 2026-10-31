@@ -65,6 +65,29 @@ Se algo não funcionar, veja **[Problemas comuns](docs/FORTIGATE.md#problemas-co
 
 Não publique o painel na internet. Para usar um certificado próprio no lugar do autoassinado, substitua `/etc/ssl/acessowifi/cert.pem` e `key.pem` e rode `systemctl reload nginx`.
 
+## Atualização automática
+
+Se você aceitou na instalação, o servidor consulta o GitHub **a cada 5 minutos** e instala sozinho cada commit novo da branch `master`:
+
+1. baixa o código e instala as bibliotecas novas, se `requirements.txt` mudou;
+2. **testa se o painel carrega** antes de reiniciar;
+3. reinicia e confirma que o painel responde;
+4. **se algo falhar, volta para a versão anterior** e não tenta de novo aquele commit; o próximo commit é tentado normalmente.
+
+A configuração (`.env`: FortiGate, token, senha) nunca é tocada.
+
+| Para | Comando (como root) |
+|---|---|
+| Ver a versão instalada e o histórico | `acessowifi atualizacoes` |
+| Atualizar agora, sem esperar os 5 minutos | `acessowifi atualizar` |
+| Ligar ou desligar | `acessowifi auto-atualizar liga` / `desliga` |
+
+Cuidados:
+- **Quem pode enviar commits para o repositório controla o servidor.** Use autenticação em dois fatores no GitHub e só dê acesso de escrita a quem você confia.
+- Faça as melhorias numa branch e só junte na `master` quando estiverem testadas (`DEMO_MODE=1`, abaixo).
+- Funções que precisam de **permissões novas no FortiGate** (por exemplo, criar SSIDs) exigem rodar `./deploy/install.sh` uma vez, respondendo **sim** para refazer a configuração. A atualização automática não altera o FortiGate.
+- Repositório **privado**: o servidor precisa de credencial de leitura (deploy key) para consultar o GitHub.
+
 ## Como funciona
 
 **Cadastro.** Cada pessoa vira uma conta de visitante (guest) no grupo `WiFi-Cadastrados`, com data e hora de validade. A senha aparece uma única vez após o cadastro. Se ficar em branco, o painel gera uma de 8 caracteres, fácil de digitar no celular. O painel só altera esse grupo e nunca mexe no grupo do Google nem nos admins.
@@ -98,6 +121,8 @@ O assistente de configuração também tem um modo simulado: `.venv/bin/python d
 | `fortigate.py` | Cliente da API REST do FortiOS |
 | `static/` | Páginas e JavaScript |
 | `deploy/install.sh` | Instalador |
+| `deploy/acessowifi-update.sh` | Atualização automática pelo GitHub (timer a cada 5 min) |
+| `deploy/acessowifi-cli.sh` | Comando `acessowifi` (status, testar, log, senha, atualizar...) |
 | `deploy/configure.py` | Assistente de perguntas e configuração automática do FortiGate |
 | `deploy/fortigate-setup.conf` | Comandos de CLI para o modo manual |
 | `docs/FORTIGATE.md` | Guia do FortiGate: cada item explicado e problemas comuns |

@@ -70,6 +70,17 @@ open(path, "w").write("\n".join(out) + "\n")'
     systemctl restart acessowifi 2>/dev/null || true
     echo "Pronto: entre no painel com o usuário '$NEW_USER' e a nova senha."
     ;;
+  atualizar)  shift; /usr/local/sbin/acessowifi-update "$@" ;;
+  atualizacoes)
+    echo "Versão instalada: $(git -C /var/lib/acessowifi/repo log -1 --format='%h %s (%cr)' 2>/dev/null || echo '?')"
+    echo "Atualização automática: $(systemctl is-enabled acessowifi-update.timer 2>/dev/null || echo desativada)"
+    journalctl -u acessowifi-update -n 40 --no-pager -o short-iso 2>/dev/null | grep -v "Starting\|Finished\|Deactivated\|Consumed" ;;
+  auto-atualizar)
+    case "${2:-}" in
+      liga)    echo 1 > /var/lib/acessowifi/auto-update; systemctl enable -q --now acessowifi-update.timer && echo "Atualização automática ligada." ;;
+      desliga) echo 0 > /var/lib/acessowifi/auto-update; systemctl disable -q --now acessowifi-update.timer && echo "Atualização automática desligada." ;;
+      *)       echo "Uso: acessowifi auto-atualizar liga|desliga" ;;
+    esac ;;
   log)       journalctl -u acessowifi -f ;;
   reiniciar) systemctl restart acessowifi && echo "Painel reiniciado." ;;
   *)
@@ -80,6 +91,9 @@ open(path, "w").write("\n".join(out) + "\n")'
     echo "  reiniciar   reinicia o painel"
     echo "  diagnostico mostra por que o painel não sobe"
     echo "  senha       troca o usuário e a senha de login do painel"
+    echo "  atualizar   busca e instala agora a versão nova do GitHub (--forcar: reinstala)"
+    echo "  atualizacoes  versão instalada e histórico das atualizações automáticas"
+    echo "  auto-atualizar liga|desliga"
     echo "  limpar      remove agora as liberações de MAC vencidas"
     ;;
 esac

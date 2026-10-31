@@ -17,9 +17,14 @@ Painel interno (Flask + HTML/JS puro) para o Wi-Fi de um acampamento: FortiGate 
 - Diferenças 7.2 → 7.4 já tratadas: SSID com `set captive-portal enable` (em vez de `set security captive-portal`); `set vdom "root"` no `system api-user` é necessário no 7.4 (senão 403 "wrong vdom") e não existe no 7.2 sem VDOMs, por isso é linha opcional (`?`) no configurador.
 - `deploy/fortigate-setup.conf` e `docs/FORTIGATE.md`: configuração manual do FortiGate (CLI e GUI) e problemas comuns. Mantenha os três (configure.py, .conf, docs) coerentes ao mudar nomes ou permissões.
 - `deploy/acessowifi-cli.sh` → `/usr/local/bin/acessowifi` (status, testar, log, reiniciar, limpar), funciona sem sudo, como root. O `.env` é `root:acessowifi 640`; o instalador reaplica isso em toda execução (nunca incluir o `.env` em `chown -R`).
+- `deploy/acessowifi-update.sh` → `/usr/local/sbin/acessowifi-update` + `acessowifi-update.timer` (5 min): cópia do repositório em `/var/lib/acessowifi/repo`; a cada commit novo na `master` copia o código para `/opt/acessowifi`, roda `pip install` se `requirements.txt` mudou, copia units novas, testa `import app` como o usuário do serviço, reinicia, confere `/login`; se falhar, volta ao commit anterior e marca o commit em `failed-rev`.
 - `flask --app app check-fortigate [--escrita]` (`acessowifi testar`): diagnóstico de conexão, permissões e grupos. Rode-o primeiro quando algo não funcionar.
 
 Regras:
+- **Tudo que entra na `master` vai sozinho para o servidor em até 5 minutos.** Antes de juntar, teste com `DEMO_MODE=1` (painel) e `deploy/configure.py --demo` (instalador).
+- Uma versão nova precisa funcionar com o `.env` que já existe no servidor: variável nova sempre com valor padrão (`os.getenv("X", padrão)`), nunca `os.environ["X"]`. A atualização automática não faz perguntas.
+- Permissão nova no FortiGate (ex.: `wifi read-write`, `fwgrp-permission schedule`) não chega pela atualização: adicione-a ao perfil em `configure.py`, `.conf` e docs, e faça o painel detectar a falta (erro 403 da API) e mostrar "rode ./deploy/install.sh e refaça a configuração".
+- Dados que o painel precisa guardar ficam no FortiGate ou em `/var/lib/acessowifi`, nunca dentro de `/opt/acessowifi`, que é sobrescrito a cada atualização e é somente leitura para o serviço.
 - Hospedado on-premise; não adicionar dependências de nuvem/CDN.
 - Todo usuário cadastrado tem validade obrigatória. Não existe senha compartilhada.
 - O instalador nunca altera o FortiGate sem mostrar o plano e receber confirmação, nem remove grupos já existentes do SSID.
