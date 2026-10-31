@@ -68,7 +68,7 @@ Não publique o painel na internet. Para usar um certificado próprio no lugar d
 
 ## Atualizações pelo botão
 
-O botão **Atualizações**, no topo do painel, mostra um número quando há commits novos no GitHub: **1** para uma atualização, **2** para duas, e assim por diante. O servidor só *verifica* (de hora em hora ou quando você clica em **Verificar agora**); **nada é instalado sem você clicar em Instalar**.
+O painel tem número de versão (**1.0**, depois **1.1**, **1.2**...), mostrado ao lado do título e registrado no `CHANGELOG.md` com o que mudou em cada uma. O botão **Atualizações**, no topo, mostra quantas versões novas existem no GitHub (**1**, **2**...) e, ao clicar, o que cada uma traz. O servidor só *verifica* (de hora em hora ou quando você clica em **Verificar agora**); **nada é instalado sem você clicar em Instalar**.
 
 Ao clicar em **Instalar**, o servidor:
 1. baixa o código e instala as bibliotecas novas, se `requirements.txt` mudou;

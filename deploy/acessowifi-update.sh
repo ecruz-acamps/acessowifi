@@ -42,12 +42,35 @@ def git(*args):
 def commits(*rng):
     out = git("log", "--format=%h%x1f%s%x1f%cI", *rng)
     return [dict(zip(("hash", "subject", "date"), l.split("\x1f"))) for l in out.splitlines() if l]
+def vtuple(v):
+    try:
+        return tuple(int(x) for x in v.split("."))
+    except ValueError:
+        return ()
+def versions(rev, newer_than):
+    """Seções '## X.Y — data' do CHANGELOG.md de 'rev' mais novas que 'newer_than'."""
+    out, cur = [], None
+    for line in git("show", f"{rev}:CHANGELOG.md").splitlines():
+        if line.startswith("## "):
+            number, _, date = line[3:].partition("—")
+            cur = {"version": number.strip(), "date": date.strip(), "changes": []}
+            if vtuple(cur["version"]) > vtuple(newer_than):
+                out.append(cur)
+            else:
+                cur = None
+        elif cur is not None and line.startswith("- "):
+            cur["changes"].append(line[2:].strip())
+    return out
 cur, tgt = os.environ.get("CURRENT", ""), os.environ.get("TARGET", "")
 current = (commits("-1", cur) or [{}])[0] if cur else {}
+current["version"] = git("show", f"{cur}:VERSION") if cur else ""
 pending = commits(f"{cur}..{tgt}") if cur and tgt and cur != tgt else []
+target_version = git("show", f"{tgt}:VERSION") if pending else current["version"]
 status = {"state": os.environ["STATUS_STATE"], "message": os.environ["STATUS_MSG"],
           "log": [l for l in os.environ.get("STATUS_LOG", "").splitlines() if l],
-          "current": current, "pending": pending, "checked_at": int(time.time())}
+          "current": current, "pending": pending, "target_version": target_version,
+          "pending_versions": versions(tgt, current["version"] or "0") if pending else [],
+          "checked_at": int(time.time())}
 tmp = sys.argv[1] + ".tmp"
 with open(tmp, "w") as f:
     json.dump(status, f, ensure_ascii=False)
@@ -72,8 +95,11 @@ TARGET=$(git -C "$REPO" rev-parse "origin/$BRANCH")
 
 if [ "$MODE" = --verificar ]; then
   N=$(git -C "$REPO" rev-list --count "$CURRENT..$TARGET")
-  write_status idle "$([ "$N" = 0 ] && echo "O painel está na versão mais recente." || echo "$N atualização(ões) disponível(is).")"
-  [ -t 1 ] && echo "$N atualização(ões) disponível(is)."
+  V_NOW=$(git -C "$REPO" show "$CURRENT:VERSION" 2>/dev/null); V_NEW=$(git -C "$REPO" show "$TARGET:VERSION" 2>/dev/null)
+  if [ "$N" = 0 ]; then MSG="O painel está na versão mais recente${V_NOW:+ ($V_NOW)}."
+  else MSG="Versão ${V_NEW:-nova} disponível${V_NOW:+ (instalada: $V_NOW)}."; fi
+  write_status idle "$MSG"
+  [ -t 1 ] && echo "$MSG"
   exit 0
 fi
 if [ "$CURRENT" = "$TARGET" ] && [ "$MODE" != --forcar ]; then
@@ -141,8 +167,9 @@ while read -r line; do log "  $line"; done < <(git -C "$REPO" log --format='%h %
 write_status installing "Instalando a atualização..."
 
 if deploy "$TARGET"; then
-  log "Atualizado para $(short "$TARGET")."
-  write_status ok "Atualização instalada."
+  V_NEW=$(cat "$APP_DIR/VERSION" 2>/dev/null)
+  log "Atualizado para ${V_NEW:+a versão $V_NEW }($(short "$TARGET"))."
+  write_status ok "Versão ${V_NEW:-nova} instalada."
 else
   log "Falhou. Voltando para $(short "$CURRENT")..."
   if deploy "$CURRENT"; then

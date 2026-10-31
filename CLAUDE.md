@@ -21,6 +21,10 @@ Painel interno (Flask + HTML/JS puro) para o Wi-Fi de um acampamento: FortiGate 
 - `deploy/acessowifi-update.sh` → `/usr/local/sbin/acessowifi-update`: `--verificar` (fetch + conta commits; timer de hora em hora) e `--instalar` (copia o código para `/opt/acessowifi`, `pip install` se `requirements.txt` mudou, units novas, testa `import app`, reinicia, confere `/login`; se falhar volta ao commit anterior). Nada é instalado sozinho: o botão "Atualizações" do painel grava `check`/`install` em `/var/lib/acessowifi-ctl` (única pasta gravável pelo serviço, `ReadWritePaths`) e as units `acessowifi-update.path`/`acessowifi-update-install.path` executam o script como root. O resultado vai para `/var/lib/acessowifi-ctl/status.json`, lido por `GET /api/updates`.
 - `flask --app app check-fortigate [--escrita]` (`acessowifi testar`): diagnóstico de conexão, permissões e grupos. Rode-o primeiro quando algo não funcionar.
 
+Versões:
+- `VERSION` tem o número da versão (`1.0`, `1.1`, `1.2`...; depois do `1.9` vem `1.10`). **Toda entrega para a `master` aumenta o número depois do ponto em 1** e ganha uma seção no topo do `CHANGELOG.md`, no formato `## 1.1 — AAAA-MM-DD`, com itens `- ` em português simples, escritos para quem usa o painel. O botão "Atualizações" conta e lista as versões a partir dessas seções (`deploy/acessowifi-update.sh`, `versions()`), e o cabeçalho mostra a versão instalada.
+- Vários commits podem formar uma versão: aumente o número uma vez por entrega, não por commit.
+
 Regras:
 - Tudo que entra na `master` aparece no botão "Atualizações" do servidor e é instalado com um clique. Antes de juntar, teste com `DEMO_MODE=1` (painel) e `deploy/configure.py --demo` (instalador).
 - Uma versão nova precisa funcionar com o `.env` que já existe no servidor: variável nova sempre com valor padrão (`os.getenv("X", padrão)`), nunca `os.environ["X"]`. A instalação pelo botão não faz perguntas.

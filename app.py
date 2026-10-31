@@ -543,8 +543,18 @@ def api_remove_device(mac):
 # O painel não tem privilégio para instalar: grava um pedido em CTL_DIR e as units
 # acessowifi-update*.path executam o deploy/acessowifi-update.sh como root.
 CTL_DIR = Path(os.getenv("ACESSOWIFI_CTL", "/var/lib/acessowifi-ctl"))
+try:
+    APP_VERSION = (Path(__file__).resolve().with_name("VERSION")).read_text().strip()
+except OSError:
+    APP_VERSION = "?"
 _demo_updates = {"state": "idle", "message": "2 atualização(ões) disponível(is).", "log": [],
-                 "current": {"hash": "a1b2c3d", "subject": "Versão instalada", "date": "2026-10-30T10:00:00-03:00"},
+                 "current": {"hash": "a1b2c3d", "subject": "Versão instalada", "date": "2026-10-30T10:00:00-03:00",
+                             "version": APP_VERSION},
+                 "target_version": "1.2",
+                 "pending_versions": [
+                     {"version": "1.2", "date": "2026-11-02", "changes": ["Relatório de uso por SSID.",
+                                                                         "Exportar a lista de usuários em planilha."]},
+                     {"version": "1.1", "date": "2026-11-01", "changes": ["Ajustes de cores na tela de login."]}],
                  "pending": [{"hash": "e4f5a6b", "subject": "Aba SSIDs: escolha do tipo de acesso",
                               "date": "2026-10-31T09:12:00-03:00"},
                              {"hash": "c7d8e9f", "subject": "Interface: botão de atualizações",
@@ -556,8 +566,9 @@ def _update_status():
     if os.getenv("DEMO_MODE") == "1":
         st = _demo_updates
         if st["_done_at"] and time.time() >= st["_done_at"]:
-            st.update(state="ok", message="Atualização instalada.", _done_at=None, checked_at=int(time.time()),
-                      current=st["pending"][-1], pending=[], log=st["log"] + ["Atualizado."])
+            st.update(state="ok", message="Versão 1.2 instalada.", _done_at=None, checked_at=int(time.time()),
+                      current={**st["pending"][-1], "version": "1.2"}, pending=[], pending_versions=[],
+                      log=st["log"] + ["Atualizado para a versão 1.2."])
         return {k: v for k, v in st.items() if not k.startswith("_")}
     try:
         with open(CTL_DIR / "status.json") as f:
@@ -581,7 +592,7 @@ def _request(kind):
 @app.get("/api/updates")
 @login_required
 def api_updates():
-    return jsonify(_update_status())
+    return jsonify({**_update_status(), "installed_version": APP_VERSION})
 
 
 @app.post("/api/updates/check")

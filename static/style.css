@@ -122,3 +122,5 @@ dialog input { min-width: 0; }
 .commit-list li small { display: block; color: var(--muted); }
 .update-log { background: var(--neutral-bg); border-radius: 6px; padding: 8px 10px; font-size: 12px;
   max-height: 160px; overflow: auto; white-space: pre-wrap; margin: 0; }
+.version { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+.commit-list li ul { margin: 4px 0 0; padding-left: 18px; color: var(--text); font-size: 13px; }

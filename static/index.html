@@ -8,7 +8,7 @@
 </head>
 <body>
   <header>
-    <h1>Acesso Wi-Fi</h1>
+    <h1>Acesso Wi-Fi <span id="app-version" class="version"></span></h1>
     <div class="header-right">
       <span id="updated" class="muted"></span>
       <button id="updates-btn" type="button" class="ghost with-count" title="Atualizações do painel">
@@ -210,7 +210,7 @@
     <div class="dialog-body">
       <h2>Atualizações do painel</h2>
       <p id="updates-message" class="muted"></p>
-      <p class="muted small-note">Instalada: <span id="updates-current" class="mono"></span></p>
+      <p class="muted small-note">Versão instalada: <strong id="updates-current"></strong></p>
       <ul id="updates-list" class="commit-list"></ul>
       <pre id="updates-log" class="update-log" hidden></pre>
       <p class="muted small-note">Antes de trocar a versão, o servidor testa se o painel novo funciona. Se algo falhar,

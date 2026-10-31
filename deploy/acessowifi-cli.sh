@@ -80,10 +80,15 @@ try:
 except OSError:
     sys.exit("Ainda não há verificação. Rode: acessowifi verificar")
 c = s.get("current") or {}
-print(f"Versão instalada: {c.get('hash', '?')} {c.get('subject', '')}")
+print(f"Versão instalada: {c.get('version') or '?'} ({c.get('hash', '?')})")
 print(f"Situação: {s.get('message', '')}")
-for p in s.get("pending", []):
-    print(f"  novo: {p['hash']} {p['subject']}")
+for v in s.get("pending_versions", []):
+    print(f"  Versão {v['version']} ({v['date']}):")
+    for change in v["changes"]:
+        print(f"    - {change}")
+if not s.get("pending_versions"):
+    for p in s.get("pending", []):
+        print(f"  novo: {p['hash']} {p['subject']}")
 for line in s.get("log", [])[-10:]:
     print(f"  | {line}")
 PY

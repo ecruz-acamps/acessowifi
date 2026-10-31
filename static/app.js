@@ -554,27 +554,42 @@ async function loadUpdates() {
 
 function renderUpdates() {
   const u = state.updates;
-  const n = (u.pending || []).length;
+  if (u.installed_version) $("#app-version").textContent = `v${u.installed_version}`;
+  // Conta versões (1.1, 1.2...); sem número de versão nos commits, conta os commits
+  const versions = u.pending_versions || [];
+  const n = versions.length || (u.pending || []).length;
   $("#updates-count").textContent = n > 9 ? "9+" : String(n);
   $("#updates-count").hidden = n === 0;
-  $("#updates-btn").title = n ? `${n} atualização(ões) disponível(is)` : "Atualizações do painel";
+  $("#updates-btn").title = n ? `${n} versão(ões) nova(s) disponível(is)` : "Atualizações do painel";
   if (!updatesDialog.open) return;
 
   const busy = u.state === "installing" || u.state === "checking";
   $("#updates-message").textContent = u.message || "";
-  $("#updates-current").textContent = u.current?.hash ? `${u.current.hash} ${u.current.subject || ""}` : "–";
+  $("#updates-current").textContent = u.installed_version ? `v${u.installed_version}` : (u.current?.hash || "–");
   const list = $("#updates-list");
-  list.replaceChildren(...(u.pending || []).map((c) => {
-    const li = el("li", c.subject);
-    li.append(el("small", `${c.hash} · ${c.date ? new Date(c.date).toLocaleString("pt-BR") : ""}`));
-    return li;
-  }));
+  if (versions.length) {
+    list.replaceChildren(...versions.map((v) => {
+      const li = el("li", null);
+      li.append(el("strong", `Versão ${v.version}`), el("small", v.date || ""));
+      const ul = document.createElement("ul");
+      ul.append(...v.changes.map((c) => el("li", c)));
+      li.append(ul);
+      return li;
+    }));
+  } else {
+    list.replaceChildren(...(u.pending || []).map((c) => {
+      const li = el("li", c.subject);
+      li.append(el("small", `${c.hash} · ${c.date ? new Date(c.date).toLocaleString("pt-BR") : ""}`));
+      return li;
+    }));
+  }
   const showLog = (u.state === "installing" || u.state === "failed" || u.state === "ok") && (u.log || []).length;
   $("#updates-log").textContent = showLog ? u.log.join("\n") : "";
   $("#updates-log").hidden = !showLog;
   $("#updates-install").hidden = !n;
   $("#updates-install").disabled = busy || u.state === "unavailable";
   $("#updates-install").textContent = busy && u.state === "installing" ? "Instalando…"
+    : u.target_version && versions.length ? `Instalar a versão ${u.target_version}`
     : n === 1 ? "Instalar 1 atualização" : `Instalar ${n} atualizações`;
   $("#updates-check").disabled = busy || u.state === "unavailable";
 }
@@ -610,8 +625,8 @@ $("#updates-check").addEventListener("click", async () => {
 });
 
 $("#updates-install").addEventListener("click", async () => {
-  const n = state.updates.pending.length;
-  if (!confirm(`Instalar ${n} atualização(ões)? O painel fica fora do ar por alguns segundos.`)) return;
+  const target = state.updates.target_version;
+  if (!confirm(`Instalar ${target ? `a versão ${target}` : "a atualização"}? O painel fica fora do ar por alguns segundos.`)) return;
   const before = state.updates.checked_at;
   try {
     await api("/api/updates/install", { method: "POST" });

@@ -290,7 +290,7 @@ fi
 
 # ---------------------------------------------------------------- resumo
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-say "Pronto!"
+say "Pronto! Versão $(cat "$APP_DIR/VERSION" 2>/dev/null || echo '?') do painel."
 if [ "$USE_NGINX" = 1 ]; then
   info "Painel:  https://${IP:-IP_DO_SERVIDOR}$([ "$HTTPS_PORT" = 443 ] || echo ":$HTTPS_PORT")/   (o navegador vai avisar do certificado autoassinado)"
 else
