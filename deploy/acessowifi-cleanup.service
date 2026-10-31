@@ -9,6 +9,7 @@ Group=acessowifi
 WorkingDirectory=/opt/acessowifi
 EnvironmentFile=/opt/acessowifi/.env
 Environment=FLASK_APP=app
+Environment=FLASK_SKIP_DOTENV=1
 ExecStart=/opt/acessowifi/.venv/bin/flask cleanup-devices
 NoNewPrivileges=true
 ProtectSystem=strict

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Instalador do painel Acesso Wi-Fi (Debian/Ubuntu com systemd).
 #
-#   sudo ./deploy/install.sh
+#   ./deploy/install.sh   (como root: "su -" ou sudo)
 #
 # Pergunta tudo o que é necessário (deploy/configure.py), configura o FortiGate (opcional,
 # por SSH, mostrando as mudanças antes), gera /opt/acessowifi/.env, instala nginx com HTTPS,
@@ -25,7 +25,7 @@ yes_no() {  # yes_no "pergunta" S|N  -> retorna 0 para sim
   [[ $ans =~ ^[sSyY] ]]
 }
 
-[ "$(id -u)" -eq 0 ] || { echo "Rode como root: sudo $0"; exit 1; }
+[ "$(id -u)" -eq 0 ] || { echo "Rode como root (su - ou sudo): $0"; exit 1; }
 
 # ---------------------------------------------------------------- dependências
 say "Verificando dependências"
@@ -42,12 +42,15 @@ info "$(python3 --version)"
 
 # ---------------------------------------------------------------- arquivos
 say "Copiando o painel para $APP_DIR"
-id "$SVC_USER" >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --shell "$(command -v nologin || echo /bin/false)" "$SVC_USER"
+getent group "$SVC_USER" >/dev/null || groupadd --system "$SVC_USER"
+id "$SVC_USER" >/dev/null 2>&1 || useradd --system --gid "$SVC_USER" --home-dir "$APP_DIR" --shell "$(command -v nologin || echo /bin/false)" "$SVC_USER"
+[ "$(id -gn "$SVC_USER")" = "$SVC_USER" ] || usermod -g "$SVC_USER" "$SVC_USER"
 mkdir -p "$APP_DIR"
 if [ "$SRC_DIR" != "$APP_DIR" ]; then
   tar -C "$SRC_DIR" --exclude=.git --exclude=.venv --exclude=.env --exclude=__pycache__ -cf - . | tar -C "$APP_DIR" -xf -
 fi
-chown -R root:root "$APP_DIR"   # o serviço só lê o código; não precisa escrever nele
+# O serviço só lê o código; não precisa escrever nele. O .env tem permissão própria (abaixo).
+find "$APP_DIR" -path "$APP_DIR/.env" -prune -o -exec chown root:root {} +
 
 say "Instalando bibliotecas Python"
 [ -x "$APP_DIR/.venv/bin/python" ] || python3 -m venv "$APP_DIR/.venv"
@@ -71,9 +74,12 @@ if [ "$RECONFIGURE" = 1 ]; then
     exit 1
   fi
   mv "$TMP_ENV" "$APP_DIR/.env"
+fi
+fix_env_perms() {  # só root e o serviço leem o .env (tem o token do FortiGate)
   chown root:"$SVC_USER" "$APP_DIR/.env"
   chmod 640 "$APP_DIR/.env"
-fi
+}
+fix_env_perms
 grep -q "^BIND=.*127.0.0.1" "$APP_DIR/.env" && USE_NGINX=1 || USE_NGINX=0
 
 # ---------------------------------------------------------------- nginx + HTTPS
@@ -201,9 +207,12 @@ if [ "$USE_NGINX" = 1 ]; then
   rm -f /tmp/acessowifi-nginx.log
 fi
 
+fix_env_perms   # o env_set acima recria o arquivo
+install -m 755 "$APP_DIR/deploy/acessowifi-cli.sh" /usr/local/bin/acessowifi
+
 # ---------------------------------------------------------------- serviços
 say "Teste completo com o FortiGate (cria e apaga um usuário e um endereço de teste)"
-if (cd "$APP_DIR" && runuser -u "$SVC_USER" -- "$APP_DIR/.venv/bin/flask" --app app check-fortigate --escrita); then
+if /usr/local/bin/acessowifi testar --escrita; then
   CHECK_OK=1
 else
   CHECK_OK=0
@@ -237,7 +246,7 @@ u.build_opener(u.ProxyHandler({})).open(sys.argv[1], timeout=2)' "http://127.0.0
   fi
 else
   info "systemd não encontrado: inicie manualmente com"
-  info "  cd $APP_DIR && sudo -u $SVC_USER .venv/bin/gunicorn -w 2 -b \$BIND app:app"
+  info "  cd $APP_DIR && runuser -u $SVC_USER -- .venv/bin/gunicorn -w 2 -b \$BIND app:app"
 fi
 
 # ---------------------------------------------------------------- firewall do servidor
@@ -257,11 +266,14 @@ else
 fi
 if [ "$CHECK_OK" != 1 ]; then
   info "ATENÇÃO: o teste com o FortiGate falhou (veja acima). Veja docs/FORTIGATE.md, parte"
-  info "\"Problemas comuns\", e depois rode: sudo ./deploy/install.sh"
+  info "\"Problemas comuns\", e depois rode: acessowifi testar"
 fi
 info ""
-info "Comandos úteis:"
-info "  Testar o FortiGate:  cd $APP_DIR && sudo -u $SVC_USER .venv/bin/flask --app app check-fortigate"
+info "Comandos (como root):"
+info "  acessowifi status    situação do painel, do nginx e da limpeza automática"
+info "  acessowifi testar    testa a conexão com o FortiGate (--escrita para o teste completo)"
+info "  acessowifi log       acompanha o log do painel"
+info "  acessowifi reiniciar reinicia o painel"
 info "  Ver o log:           journalctl -u acessowifi -f"
-info "  Mudar configuração:  sudo ./deploy/install.sh  (responda sim para refazer)"
-info "  Atualizar:           git pull && sudo ./deploy/install.sh"
+info "  Mudar configuração:  ./deploy/install.sh e responda sim para refazer"
+info "  Atualizar:           git pull && ./deploy/install.sh"

@@ -16,7 +16,8 @@ Painel interno (Flask + HTML/JS puro) para o Wi-Fi de um acampamento: FortiGate 
 - `deploy/configure.py`: assistente que pergunta tudo e grava o `.env`. No modo automático, configura o FortiGate por SSH (paramiko) com um admin informado na hora e **não salvo**: lê o estado com `show`, monta um plano idempotente, mostra, pede confirmação, aplica e gera o token. `--demo` simula o FortiGate.
 - Diferenças 7.2 → 7.4 já tratadas: SSID com `set captive-portal enable` (em vez de `set security captive-portal`); `set vdom "root"` no `system api-user` é necessário no 7.4 (senão 403 "wrong vdom") e não existe no 7.2 sem VDOMs, por isso é linha opcional (`?`) no configurador.
 - `deploy/fortigate-setup.conf` e `docs/FORTIGATE.md`: configuração manual do FortiGate (CLI e GUI) e problemas comuns. Mantenha os três (configure.py, .conf, docs) coerentes ao mudar nomes ou permissões.
-- `flask --app app check-fortigate [--escrita]`: diagnóstico de conexão, permissões e grupos. Rode-o primeiro quando algo não funcionar.
+- `deploy/acessowifi-cli.sh` → `/usr/local/bin/acessowifi` (status, testar, log, reiniciar, limpar), funciona sem sudo, como root. O `.env` é `root:acessowifi 640`; o instalador reaplica isso em toda execução (nunca incluir o `.env` em `chown -R`).
+- `flask --app app check-fortigate [--escrita]` (`acessowifi testar`): diagnóstico de conexão, permissões e grupos. Rode-o primeiro quando algo não funcionar.
 
 Regras:
 - Hospedado on-premise; não adicionar dependências de nuvem/CDN.

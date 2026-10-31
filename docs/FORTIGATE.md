@@ -209,9 +209,9 @@ A validade das contas é gravada na **hora local**. O FortiGate (*System > Setti
 
 ## Como conferir
 
-No servidor:
+No servidor, como root:
 ```bash
-cd /opt/acessowifi && sudo -u acessowifi .venv/bin/flask --app app check-fortigate --escrita
+acessowifi testar --escrita
 ```
 Ele testa a conexão, as permissões e os grupos. Também cria e apaga um usuário e um endereço de teste. Cada linha mostra `[OK]` ou `[ERRO]` com o motivo.
 

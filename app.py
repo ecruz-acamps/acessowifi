@@ -7,6 +7,8 @@ import time
 from datetime import datetime, timedelta
 from functools import wraps
 
+from pathlib import Path
+
 import click
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
@@ -14,7 +16,10 @@ from werkzeug.security import check_password_hash
 
 from fortigate import FortiGate, FortiGateError
 
-load_dotenv()
+ENV_FILE = Path(__file__).resolve().with_name(".env")
+if ENV_FILE.exists() and not os.access(ENV_FILE, os.R_OK):
+    raise SystemExit(f"Sem permissão para ler {ENV_FILE}. Rode como root: acessowifi testar")
+load_dotenv(ENV_FILE)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = Flask(__name__, static_folder="static")

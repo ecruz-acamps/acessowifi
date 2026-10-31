@@ -21,8 +21,10 @@ Em um servidor Debian ou Ubuntu, na mesma rede do FortiGate:
 ```bash
 git clone https://github.com/ecruz-acamps/acessowifi
 cd acessowifi
-sudo ./deploy/install.sh
+./deploy/install.sh
 ```
+
+Rode como **root**: `su -` (com o hífen) e depois o comando, ou `sudo ./deploy/install.sh` se o servidor tiver sudo.
 
 O instalador pergunta **tudo** o que é necessário e deixa o painel funcionando:
 
@@ -47,16 +49,17 @@ O painel **não usa usuário e senha** de admin do FortiGate. Ele usa a **API RE
 
 | Para | Comando |
 |---|---|
-| Atualizar o painel | `git pull && sudo ./deploy/install.sh` (mantém a configuração) |
-| Mudar FortiGate, token, senha ou acesso | `sudo ./deploy/install.sh` e responda **sim** para refazer a configuração |
-| Testar a conexão com o FortiGate | `cd /opt/acessowifi && sudo -u acessowifi .venv/bin/flask --app app check-fortigate --escrita` |
-| Ver o log (inclui quem cadastrou, alterou ou removeu o quê) | `journalctl -u acessowifi -f` |
+| Ver a situação do painel | `acessowifi status` |
+| Atualizar o painel | `git pull && ./deploy/install.sh` (mantém a configuração) |
+| Mudar FortiGate, token, senha ou acesso | `./deploy/install.sh` e responda **sim** para refazer a configuração |
+| Testar a conexão com o FortiGate | `acessowifi testar --escrita` |
+| Ver o log (inclui quem cadastrou, alterou ou removeu o quê) | `acessowifi log` |
 
 Se algo não funcionar, veja **[Problemas comuns](docs/FORTIGATE.md#problemas-comuns)**.
 
 **Se o nginx não iniciar:** normalmente é porta ocupada por outro programa (Apache, outro painel). O instalador detecta isso: se a 443 estiver em uso, oferece outra porta (ex.: `https://IP:8443`); se a 80 estiver em uso, desativa o site padrão do nginx. Se mesmo assim falhar, ele mostra o motivo e oferece seguir sem nginx, com o painel em HTTP na porta 8080. Para ver o motivo à mão: `journalctl -u nginx -n 20` e `ss -ltnp | grep -E ':(80|443) '`.
 
-**Se aparecer "502 Bad Gateway":** o nginx está funcionando, mas o painel por trás dele não respondeu. Normalmente a porta interna (8080) está ocupada por outro programa ou o serviço caiu. O instalador agora escolhe uma porta livre e só termina depois de confirmar que o painel responde; rode-o de novo (responda **não** para refazer a configuração). Para ver o motivo à mão: `systemctl status acessowifi` e `journalctl -u acessowifi -n 50`.
+**Se aparecer "502 Bad Gateway":** o nginx está funcionando, mas o painel por trás dele não respondeu. Normalmente a porta interna (8080) está ocupada por outro programa ou o serviço caiu. O instalador agora escolhe uma porta livre e só termina depois de confirmar que o painel responde; rode-o de novo (responda **não** para refazer a configuração). Para ver o motivo à mão: `acessowifi status` e `journalctl -u acessowifi -n 50`.
 
 Não publique o painel na internet. Para usar um certificado próprio no lugar do autoassinado, substitua `/etc/ssl/acessowifi/cert.pem` e `key.pem` e rode `systemctl reload nginx`.
 
