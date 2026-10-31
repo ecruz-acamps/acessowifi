@@ -1,6 +1,6 @@
 # Acesso Wi-Fi — painel para FortiGate 40F
 
-Painel interno para o Wi-Fi do acampamento (FortiGate 40F + FortiAP, captive portal com usuário/senha ou Google Workspace, FortiOS 7.2):
+Painel interno para o Wi-Fi do acampamento (FortiGate 40F + FortiAP, captive portal com usuário/senha ou Google Workspace, FortiOS 7.4, compatível com 7.2):
 
 - **Cadastrar usuários** de acesso à internet, sempre com **validade**. O FortiGate bloqueia o login sozinho quando a conta vence.
 - Renovar validade, gerar nova senha, remover acesso.

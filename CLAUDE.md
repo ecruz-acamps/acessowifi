@@ -1,6 +1,6 @@
 # acessowifi
 
-Painel interno (Flask + HTML/JS puro) para o Wi-Fi de um acampamento: FortiGate 40F + FortiAP, FortiOS 7.2.13, SSID com captive portal que aceita usuário/senha **ou** SAML do Google Workspace.
+Painel interno (Flask + HTML/JS puro) para o Wi-Fi de um acampamento: FortiGate 40F + FortiAP, FortiOS 7.4.13 (Mature; compatível com 7.2), SSID com captive portal que aceita usuário/senha **ou** SAML do Google Workspace.
 
 - `fortigate.py`: cliente da API REST (`/api/v2/...`, Bearer token, cache de 10 s limpo a cada escrita).
 - `app.py`: login da página, normalização e cruzamento dos dados, rotas:
@@ -14,6 +14,7 @@ Painel interno (Flask + HTML/JS puro) para o Wi-Fi de um acampamento: FortiGate 
 - `static/`: frontend. Renderize sempre com `textContent`/DOM, nunca com `innerHTML`, porque hostname e usuário vêm dos dispositivos.
 - `deploy/install.sh`: instalador (dependências, cópia para `/opt/acessowifi`, nginx/HTTPS, systemd, ufw, teste final). Chama `deploy/configure.py`.
 - `deploy/configure.py`: assistente que pergunta tudo e grava o `.env`. No modo automático, configura o FortiGate por SSH (paramiko) com um admin informado na hora e **não salvo**: lê o estado com `show`, monta um plano idempotente, mostra, pede confirmação, aplica e gera o token. `--demo` simula o FortiGate.
+- Diferenças 7.2 → 7.4 já tratadas: SSID com `set captive-portal enable` (em vez de `set security captive-portal`); `set vdom "root"` no `system api-user` é necessário no 7.4 (senão 403 "wrong vdom") e não existe no 7.2 sem VDOMs, por isso é linha opcional (`?`) no configurador.
 - `deploy/fortigate-setup.conf` e `docs/FORTIGATE.md`: configuração manual do FortiGate (CLI e GUI) e problemas comuns. Mantenha os três (configure.py, .conf, docs) coerentes ao mudar nomes ou permissões.
 - `flask --app app check-fortigate [--escrita]`: diagnóstico de conexão, permissões e grupos. Rode-o primeiro quando algo não funcionar.
 

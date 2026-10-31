@@ -35,6 +35,7 @@ DEFAULTS = {
     "mac_policy": "acessowifi-mac-liberados",
 }
 DOCS = "docs/FORTIGATE.md"
+SUPPORTED = {(7, 4), (7, 2)}   # versões do FortiOS testadas no formato dos comandos
 
 
 # ------------------------------------------------------------------ interface
@@ -166,12 +167,17 @@ class FortiCLI:
         return "\n".join(lines)
 
     def script(self, lines):
-        """Executa linhas de configuração; devolve [(linha, erro)]."""
+        """Executa linhas de configuração; devolve [(linha, erro)].
+
+        Linhas que começam com "?" são opcionais: existem só em algumas versões do FortiOS,
+        e um erro nelas é ignorado.
+        """
         errors = []
         for line in lines:
-            out = self.run(line)
+            optional = line.startswith("?")
+            out = self.run(line.lstrip("?"))
             for o in out.splitlines():
-                if self.ERROR.search(o):
+                if self.ERROR.search(o) and not optional:
                     errors.append((line, o.strip()))
         return errors
 
@@ -245,8 +251,10 @@ def _auto_configure(cli, host, names):
     status = cli.run("get system status")
     version = re.search(r"Version:\s*(.+)", status)
     info(f"Versão: {version.group(1).strip() if version else 'desconhecida'}")
-    if version and "v7.2" not in version.group(1):
-        warn("O painel foi feito para FortiOS 7.2. Em outras versões alguns comandos podem mudar.")
+    release = re.search(r"v(\d+)\.(\d+)\.(\d+)", version.group(1)) if version else None
+    if release and (int(release.group(1)), int(release.group(2))) not in SUPPORTED:
+        warn("O painel foi feito para FortiOS 7.4 (e é compatível com 7.2). Nesta versão alguns")
+        warn("comandos podem ser diferentes: confira o plano antes de aplicar.")
     vdom_mode = re.search(r"Virtual domain configuration:\s*(\S+)", status)
     if vdom_mode and vdom_mode.group(1) != "disable":
         fail("Este FortiGate usa VDOMs. A configuração automática não cobre esse caso.")
@@ -414,7 +422,10 @@ def _auto_configure(cli, host, names):
         "next", "end"]))
     plan.append((f"Admin de API '{names['api_user']}', aceito só a partir de {server_ip}, e geração do token", [
         "config system api-user", f"edit {q(names['api_user'])}", 'set comments "Painel Acesso Wi-Fi"',
-        f"set accprofile {q(names['profile'])}", "config trusthost", "edit 1",
+        f"set accprofile {q(names['profile'])}",
+        # 7.4: sem esta linha a API responde 403 "wrong vdom"; 7.2 sem VDOMs não tem o campo
+        '?set vdom "root"',
+        "config trusthost", "edit 1",
         f"set ipv4-trusthost {server_ip} 255.255.255.255", "next", "end", "next", "end"]))
 
     # --- confirmação
@@ -425,7 +436,7 @@ def _auto_configure(cli, host, names):
         for desc, lines in plan:
             print(f"\n   # {desc}")
             for line in lines:
-                print(f"     {line}")
+                print(f"     {line.lstrip('?')}" + ("   (só se a versão do FortiOS tiver)" if line.startswith("?") else ""))
     if not yes_no("Aplicar estas alterações no FortiGate?", True):
         warn("Nada foi alterado.")
         return None
@@ -619,14 +630,15 @@ class DemoCLI:
     """Respostas fixas de um FortiGate 40F para testar o fluxo sem equipamento."""
 
     OUTPUTS = {
-        "get system status": "Version: FortiGate-40F v7.2.13,build1234,250101 (GA.M)\n"
+        "get system status": "Version: FortiGate-40F v7.4.13,build2900,260301 (Mature)\n"
                              "Virtual domain configuration: disable\n"
                              f"System time: {datetime.now():%a %b %d %H:%M:%S %Y}",
         "show system global": 'config system global\n    set hostname "FGT40F"\nend',
         "show user group": 'config user group\n    edit "WiFi-Google"\n        set member "Google-Workspace"\n'
                            '    next\nend',
         "show wireless-controller vap": 'config wireless-controller vap\n    edit "Acampamento"\n'
-                                        '        set ssid "Acampamento"\n        set security captive-portal\n'
+                                        '        set ssid "Acampamento"\n        set security open\n        set captive-portal enable\n'
+                                        '        set portal-type auth\n'
                                         '        set selected-usergroups "WiFi-Google"\n    next\n'
                                         '    edit "Equipe"\n        set ssid "Equipe"\n'
                                         '        set security wpa2-only-personal\n    next\nend',
@@ -656,7 +668,7 @@ class DemoCLI:
 
     def script(self, lines):
         for line in lines:
-            self.run(line)
+            self.run(line.lstrip("?"))
         return []
 
     def close(self):

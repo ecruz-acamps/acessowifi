@@ -545,7 +545,8 @@ def check_fortigate_command(escrita):
             return False
 
     print(f"FortiGate: {os.getenv('FGT_HOST', '(demo)')}  vdom: {os.getenv('FGT_VDOM', 'root')}")
-    if not check("Conexão e token (lista de usuários)", lambda: f"{len(fgt.local_users())} usuário(s) local(is)"):
+    if not check("Conexão e token (lista de usuários)", lambda: f"{len(fgt.local_users())} usuário(s) local(is)"
+                 + (f", FortiOS {fgt.version}" if getattr(fgt, "version", None) else "")):
         print("\nSem conexão: confira FGT_HOST, FGT_TOKEN, o trusted host e 'allowaccess https' na interface.")
         raise SystemExit(1)
 

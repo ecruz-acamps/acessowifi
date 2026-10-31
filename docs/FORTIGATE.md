@@ -1,6 +1,6 @@
 # Configuração do FortiGate para o painel Acesso Wi-Fi
 
-Guia para FortiGate 40F com FortiAP e FortiOS 7.2. Em geral **você não precisa fazer nada disto**: o instalador (`sudo ./deploy/install.sh`, modo automático) faz tudo por SSH e mostra cada mudança antes de aplicar. Use este guia para:
+Guia para FortiGate 40F com FortiAP e **FortiOS 7.4** (testado no formato do 7.4.13; também funciona no 7.2). Em geral **você não precisa fazer nada disto**: o instalador (`sudo ./deploy/install.sh`, modo automático) faz tudo por SSH e mostra cada mudança antes de aplicar. Use este guia para:
 
 - configurar à mão (modo manual do instalador);
 - entender o que o instalador mudou;
@@ -97,7 +97,7 @@ end
 ### 3. SSID: grupo guest e lista de exceção
 
 **GUI:** *WiFi & Switch Controller > SSIDs > (seu SSID) > Edit*
-- Security Mode: **Captive Portal**
+- **Captive Portal** ligado. No 7.4 é uma opção própria (`set captive-portal enable`); no 7.2 era um *Security Mode*
 - **User Groups**: adicione `WiFi-Cadastrados` e **mantenha** o grupo do Google
 - **Exempt Sources**: `WiFi-MAC-Liberados`
 
@@ -187,6 +187,7 @@ end
 config system api-user
     edit "acessowifi"
         set accprofile "api-acessowifi"
+        set vdom "root"
         config trusthost
             edit 1
                 set ipv4-trusthost 192.168.1.50 255.255.255.255
@@ -196,6 +197,9 @@ config system api-user
 end
 execute api-user generate-key acessowifi
 ```
+> **`set vdom "root"`:** no FortiOS 7.4 essa linha é **obrigatória**, mesmo sem VDOMs; sem ela a API responde `403` ("wrong vdom"). No 7.2 sem VDOMs o campo não existe e a linha dá *parse error*; apague-a. O instalador trata as duas versões sozinho.
+>
+> O painel envia o token no cabeçalho `Authorization`, que é o jeito exigido a partir do 7.4.5 (o token na URL foi desativado por padrão). Não é preciso habilitar `rest-api-key-url-query`.
 
 ### 8. Mesmo horário
 
@@ -228,7 +232,8 @@ Ele testa a conexão, as permissões e os grupos. Também cria e apaga um usuár
 | Validade adiantada ou atrasada algumas horas | Fusos diferentes | Passo 8 |
 | Modo automático: `Permission denied` / `Command fail` | Admin informado não é super_admin | Use um admin com perfil super_admin |
 | Modo automático: "usa VDOMs" | VDOMs habilitados | Use o modo manual, com os comandos dentro de `config vdom` / `config global` |
-| `command parse error before 'vdom'` no admin de API | `set vdom` só existe com VDOMs habilitados | Sem VDOMs, não use essa linha; com VDOMs, inclua `set vdom "root"` no `config system api-user` |
+| `command parse error before 'vdom'` no admin de API | FortiOS 7.2 sem VDOMs não tem esse campo | Apague a linha `set vdom "root"` (só no 7.2) |
+| `recusou o acesso (403)` logo após atualizar para o 7.4 | Admin de API sem `set vdom "root"` (bug conhecido do 7.4.5, corrigido no 7.4.6) ou permissões ajustadas pela atualização | `config system api-user` → `edit "acessowifi"` → `set vdom "root"`; se continuar, gere um token novo e rode o instalador de novo |
 
 ## Como desfazer
 

@@ -17,6 +17,7 @@ class FortiGate:
         self.timeout = timeout
         self.cache_ttl = cache_ttl
         self._cache = {}
+        self.version = None
 
         self.session = requests.Session()
         self.session.headers["Authorization"] = f"Bearer {token}"
@@ -49,6 +50,8 @@ class FortiGate:
             data = r.json()
         except ValueError:
             data = {}
+        if data.get("version"):
+            self.version = data["version"]   # ex.: "v7.4.13", vem em toda resposta da API
         if not r.ok or data.get("status") == "error":
             detail = data.get("cli_error") or data.get("error") or r.reason
             raise FortiGateError(f"FortiGate respondeu {r.status_code} em {method} {path}: {detail}")
