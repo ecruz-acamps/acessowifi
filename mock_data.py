@@ -105,6 +105,15 @@ class MockFortiGate:
         g["member"] = [m for m in g["member"] if m["name"] != name]
         return {"status": "success"}
 
+    def vaps(self):
+        return [{"name": "Acampamento", "ssid": "Acampamento", "security": "captive-portal",
+                 "selected-usergroups": [{"name": "WiFi-Google"}, {"name": "WiFi-Cadastrados"}],
+                 "security-exempt-list": "WiFi-Liberados"}]
+
+    def policies(self):
+        return [{"policyid": 3, "name": "wifi-internet", "srcintf": [{"name": "Acampamento"}],
+                 "dstintf": [{"name": "wan"}], "groups": [], "users": []}]
+
     # --- Estado em tempo real ---
     def wifi_clients(self):
         now = int(time.time())

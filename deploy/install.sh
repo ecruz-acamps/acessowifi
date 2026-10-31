@@ -3,9 +3,10 @@
 #
 #   sudo ./deploy/install.sh
 #
-# Na primeira vez, pergunta os dados do FortiGate e do login e cria /opt/acessowifi/.env.
-# Nas próximas (atualização), mantém o .env e só atualiza o código e reinicia o serviço.
-# Para refazer a configuração: sudo rm /opt/acessowifi/.env && sudo ./deploy/install.sh
+# Pergunta tudo o que é necessário (deploy/configure.py), configura o FortiGate (opcional,
+# por SSH, mostrando as mudanças antes), gera /opt/acessowifi/.env, instala nginx com HTTPS,
+# ativa os serviços e testa tudo. Rodar de novo atualiza o programa e pergunta se quer
+# refazer a configuração.
 set -euo pipefail
 
 APP_DIR=/opt/acessowifi
@@ -15,23 +16,12 @@ HAS_SYSTEMD=$([ -d /run/systemd/system ] && echo 1 || echo 0)
 
 say()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 info() { printf '   %s\n' "$*"; }
-ask() {  # ask VAR "pergunta" "padrão"
-  local __var=$1 prompt=$2 def=${3-} ans
-  read -r -p "   $prompt${def:+ [$def]}: " ans
-  printf -v "$__var" '%s' "${ans:-$def}"
-}
-ask_secret() {
-  local __var=$1 prompt=$2 ans=""
-  while [ -z "$ans" ]; do read -r -s -p "   $prompt: " ans; echo; done
-  printf -v "$__var" '%s' "$ans"
-}
 yes_no() {  # yes_no "pergunta" S|N  -> retorna 0 para sim
   local def=$2 ans
   read -r -p "   $1 [$([ "$def" = S ] && echo S/n || echo s/N)]: " ans
   ans=${ans:-$def}
   [[ $ans =~ ^[sSyY] ]]
 }
-q() { printf "'%s'" "$1"; }  # valor entre aspas simples para o .env
 
 [ "$(id -u)" -eq 0 ] || { echo "Rode como root: sudo $0"; exit 1; }
 
@@ -64,75 +54,25 @@ say "Instalando bibliotecas Python"
 PY="$APP_DIR/.venv/bin/python"
 
 # ---------------------------------------------------------------- configuração
-USE_NGINX=0
+RECONFIGURE=1
 if [ -f "$APP_DIR/.env" ]; then
-  say "Configuração existente mantida ($APP_DIR/.env)"
-  grep -q "^BIND=.*127.0.0.1" "$APP_DIR/.env" && USE_NGINX=1
-else
-  say "1/3  Conexão com o FortiGate (API REST)"
-  info "A conexão é por TOKEN, não por usuário e senha. Gere o token no FortiGate com o"
-  info "arquivo deploy/fortigate-setup.conf (comando: execute api-user generate-key acessowifi)."
-  ask FGT_HOST "IP do FortiGate (com :porta se o HTTPS de administração não for 443)" "192.168.1.99"
-  FGT_HOST=${FGT_HOST#https://}; FGT_HOST=${FGT_HOST#http://}; FGT_HOST=${FGT_HOST%%/*}
-  ask_secret FGT_TOKEN "Token da API (não aparece enquanto digita)"
-  ask FGT_VDOM "VDOM" "root"
-  ask FGT_GUEST_GROUPS "Grupo guest onde os usuários serão cadastrados" "WiFi-Cadastrados"
-  ask FGT_MAC_GROUP "Grupo de endereços do 'Permitir sempre'" "WiFi-MAC-Liberados"
-  TZ_DEFAULT=$(timedatectl show -p Timezone --value 2>/dev/null || true)
-  ask TZ_VALUE "Fuso horário (o mesmo do FortiGate)" "${TZ_DEFAULT:-America/Sao_Paulo}"
-
-  say "2/3  Login do painel"
-  ask PANEL_USER "Usuário para entrar no painel" "admin"
-  while :; do
-    ask_secret PANEL_PASS "Senha do painel (mínimo 8 caracteres)"
-    ask_secret PANEL_PASS2 "Repita a senha"
-    [ "$PANEL_PASS" = "$PANEL_PASS2" ] || { info "As senhas não conferem."; continue; }
-    [ ${#PANEL_PASS} -ge 8 ] || { info "Use pelo menos 8 caracteres."; continue; }
-    break
-  done
-
-  say "3/3  Acesso ao painel"
-  if yes_no "Instalar nginx com HTTPS (certificado autoassinado)? Recomendado" S; then
-    USE_NGINX=1; BIND=127.0.0.1:8080; COOKIE_SECURE=true
-  else
-    ask PORT "Porta HTTP do painel (sem HTTPS, use só na rede interna)" "8080"
-    BIND="0.0.0.0:$PORT"; COOKIE_SECURE=false
+  say "Já existe uma configuração em $APP_DIR/.env"
+  yes_no "Refazer a configuração (FortiGate, login, acesso)? Responda não para só atualizar o programa" N || RECONFIGURE=0
+fi
+if [ "$RECONFIGURE" = 1 ]; then
+  # Grava num arquivo temporário e só substitui o .env se o assistente terminar
+  TMP_ENV="$APP_DIR/.env.new"
+  DEMO_ARGS=(); [ "${ACESSOWIFI_DEMO:-}" = 1 ] && DEMO_ARGS=(--demo)   # só para testes
+  if ! (cd "$APP_DIR" && "$PY" deploy/configure.py --env "$TMP_ENV" "${DEMO_ARGS[@]}"); then
+    rm -f "$TMP_ENV"
+    echo; echo "Configuração não concluída. Nada foi alterado no servidor; rode o instalador de novo."
+    exit 1
   fi
-
-  HASH=$(printf '%s' "$PANEL_PASS" | "$PY" -c 'import sys; from werkzeug.security import generate_password_hash as g; print(g(sys.stdin.read()))')
-  SECRET=$("$PY" -c 'import secrets; print(secrets.token_hex(32))')
-  unset PANEL_PASS PANEL_PASS2
-
-  (
-    umask 027
-    cat > "$APP_DIR/.env" <<EOF
-# Gerado por deploy/install.sh em $(date '+%Y-%m-%d %H:%M'). Depois de editar: systemctl restart acessowifi
-
-# --- FortiGate (conexão pela API REST, com token) ---
-FGT_HOST=$(q "$FGT_HOST")
-FGT_TOKEN=$(q "$FGT_TOKEN")
-FGT_VDOM=$(q "$FGT_VDOM")
-FGT_VERIFY_SSL=false
-FGT_GUEST_GROUPS=$(q "$FGT_GUEST_GROUPS")
-FGT_MAC_GROUP=$(q "$FGT_MAC_GROUP")
-MAX_VALIDITY_DAYS=365
-TZ=$(q "$TZ_VALUE")
-
-# --- Login do painel ---
-APP_USER=$(q "$PANEL_USER")
-APP_PASSWORD_HASH=$(q "$HASH")
-SECRET_KEY=$(q "$SECRET")
-COOKIE_SECURE=$COOKIE_SECURE
-
-# --- Servidor ---
-BIND=$BIND
-EOF
-  )
+  mv "$TMP_ENV" "$APP_DIR/.env"
   chown root:"$SVC_USER" "$APP_DIR/.env"
   chmod 640 "$APP_DIR/.env"
-  unset FGT_TOKEN HASH SECRET
-  info "Configuração salva em $APP_DIR/.env (legível só por root e pelo serviço)."
 fi
+grep -q "^BIND=.*127.0.0.1" "$APP_DIR/.env" && USE_NGINX=1 || USE_NGINX=0
 
 # ---------------------------------------------------------------- nginx + HTTPS
 if [ "$USE_NGINX" = 1 ]; then
@@ -162,10 +102,8 @@ if [ "$USE_NGINX" = 1 ]; then
 fi
 
 # ---------------------------------------------------------------- serviços
-say "Teste de conexão com o FortiGate"
-CHECK_ARGS=()
-yes_no "Testar também a escrita (cria e apaga um usuário e um endereço de teste)?" S && CHECK_ARGS=(--escrita)
-if (cd "$APP_DIR" && runuser -u "$SVC_USER" -- "$APP_DIR/.venv/bin/flask" --app app check-fortigate "${CHECK_ARGS[@]}"); then
+say "Teste completo com o FortiGate (cria e apaga um usuário e um endereço de teste)"
+if (cd "$APP_DIR" && runuser -u "$SVC_USER" -- "$APP_DIR/.venv/bin/flask" --app app check-fortigate --escrita); then
   CHECK_OK=1
 else
   CHECK_OK=0
@@ -187,19 +125,28 @@ else
   info "  cd $APP_DIR && sudo -u $SVC_USER .venv/bin/gunicorn -w 2 -b \$BIND app:app"
 fi
 
+# ---------------------------------------------------------------- firewall do servidor
+PANEL_PORT=$([ "$USE_NGINX" = 1 ] && echo 443 || sed -n "s/^BIND='\{0,1\}[^:]*:\([0-9]*\).*/\1/p" "$APP_DIR/.env")
+if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+  say "Firewall do servidor (ufw)"
+  ufw allow "$PANEL_PORT/tcp" >/dev/null && info "Porta $PANEL_PORT liberada no ufw."
+fi
+
 # ---------------------------------------------------------------- resumo
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-BIND_NOW=$(sed -n 's/^BIND=//p' "$APP_DIR/.env")
 say "Pronto!"
 if [ "$USE_NGINX" = 1 ]; then
   info "Painel:  https://${IP:-IP_DO_SERVIDOR}/   (o navegador vai avisar do certificado autoassinado)"
 else
-  info "Painel:  http://${IP:-IP_DO_SERVIDOR}:${BIND_NOW##*:}/"
+  info "Painel:  http://${IP:-IP_DO_SERVIDOR}:$PANEL_PORT/"
 fi
-[ "$CHECK_OK" = 1 ] || info "ATENÇÃO: o teste com o FortiGate falhou (veja acima). Corrija e rode de novo o teste."
+if [ "$CHECK_OK" != 1 ]; then
+  info "ATENÇÃO: o teste com o FortiGate falhou (veja acima). Veja docs/FORTIGATE.md, parte"
+  info "\"Problemas comuns\", e depois rode: sudo ./deploy/install.sh"
+fi
 info ""
 info "Comandos úteis:"
 info "  Testar o FortiGate:  cd $APP_DIR && sudo -u $SVC_USER .venv/bin/flask --app app check-fortigate"
 info "  Ver o log:           journalctl -u acessowifi -f"
-info "  Mudar configuração:  sudo nano $APP_DIR/.env && sudo systemctl restart acessowifi"
+info "  Mudar configuração:  sudo ./deploy/install.sh  (responda sim para refazer)"
 info "  Atualizar:           git pull && sudo ./deploy/install.sh"

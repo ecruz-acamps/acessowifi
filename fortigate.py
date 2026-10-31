@@ -115,6 +115,13 @@ class FortiGate:
     def remove_group_member(self, group, name):
         return self._write("DELETE", f"cmdb/firewall/addrgrp/{quote(group, safe='')}/member/{quote(name, safe='')}")
 
+    # --- Usados pelo instalador ---
+    def vaps(self):
+        return self.get("cmdb/wireless-controller/vap")
+
+    def policies(self):
+        return self.get("cmdb/firewall/policy")
+
     # --- Estado em tempo real (monitor) ---
     def wifi_clients(self):
         return self.get("monitor/wifi/client")

@@ -12,13 +12,16 @@ Painel interno (Flask + HTML/JS puro) para o Wi-Fi de um acampamento: FortiGate 
 - `flask cleanup-devices`: remove liberações vencidas e órfãs. Roda pelo systemd timer a cada 5 min.
 - `mock_data.py`: FortiGate fictício e com estado, usado com `DEMO_MODE=1`.
 - `static/`: frontend. Renderize sempre com `textContent`/DOM, nunca com `innerHTML`, porque hostname e usuário vêm dos dispositivos.
-- `deploy/`: `install.sh` (instalador interativo; gera `/opt/acessowifi/.env`), `fortigate-setup.conf` (CLI para o FortiGate), unidades systemd e nginx.
+- `deploy/install.sh`: instalador (dependências, cópia para `/opt/acessowifi`, nginx/HTTPS, systemd, ufw, teste final). Chama `deploy/configure.py`.
+- `deploy/configure.py`: assistente que pergunta tudo e grava o `.env`. No modo automático, configura o FortiGate por SSH (paramiko) com um admin informado na hora e **não salvo**: lê o estado com `show`, monta um plano idempotente, mostra, pede confirmação, aplica e gera o token. `--demo` simula o FortiGate.
+- `deploy/fortigate-setup.conf` e `docs/FORTIGATE.md`: configuração manual do FortiGate (CLI e GUI) e problemas comuns. Mantenha os três (configure.py, .conf, docs) coerentes ao mudar nomes ou permissões.
 - `flask --app app check-fortigate [--escrita]`: diagnóstico de conexão, permissões e grupos. Rode-o primeiro quando algo não funcionar.
 
 Regras:
 - Hospedado on-premise; não adicionar dependências de nuvem/CDN.
 - Todo usuário cadastrado tem validade obrigatória. Não existe senha compartilhada.
-- Escritas no FortiGate só em grupos guest permitidos (`FGT_GUEST_GROUPS`) e em endereços com prefixo `acessowifi-` dentro de `FGT_MAC_GROUP`. Nunca alterar grupos SAML/Google, admins ou políticas.
+- O instalador nunca altera o FortiGate sem mostrar o plano e receber confirmação, nem remove grupos já existentes do SSID.
+- Escritas do painel no FortiGate só em grupos guest permitidos (`FGT_GUEST_GROUPS`) e em endereços com prefixo `acessowifi-` dentro de `FGT_MAC_GROUP`. Nunca alterar grupos SAML/Google, admins ou políticas.
 - Rotas que alteram dados exigem o header `X-Requested-With: acessowifi` (proteção CSRF).
 - Nunca expor `FGT_TOKEN` nem o campo `passwd` ao frontend. A senha gerada só é devolvida na resposta do cadastro ou da troca de senha.
 - Os nomes de campos do FortiOS variam por versão: ao ajustar, valide contra a saída real do `curl` no FortiGate (veja o README).
