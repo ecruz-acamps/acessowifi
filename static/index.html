@@ -28,6 +28,7 @@
       <button role="tab" data-tab="clients" aria-selected="true">Conectados agora</button>
       <button role="tab" data-tab="users">Usuários cadastrados</button>
       <button role="tab" data-tab="devices">Aparelhos liberados</button>
+      <button role="tab" data-tab="ssids">SSIDs</button>
       <button role="tab" data-tab="aps">Access Points</button>
     </nav>
 
@@ -35,6 +36,7 @@
       <input id="search" type="search" placeholder="Buscar por nome, usuário, IP, MAC…" autocomplete="off">
       <label id="show-expired-wrap" class="check" hidden><input id="show-expired" type="checkbox"> mostrar expirados</label>
       <button id="new-user" type="button" hidden>+ Novo usuário</button>
+      <button id="new-ssid" type="button" hidden>+ Novo SSID</button>
     </div>
 
     <div id="error" class="error" hidden></div>
@@ -63,6 +65,18 @@
         <thead><tr><th>Aparelho</th><th>MAC</th><th>Usuário</th><th>Válido até</th><th>Status</th><th></th></tr></thead>
         <tbody id="devices-body"></tbody>
       </table>
+    </div>
+
+    <div data-panel="ssids" hidden>
+      <p id="ssid-notice" class="warning" hidden></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>SSID</th><th>Quando</th><th>FortiAPs</th><th>Status</th><th></th></tr></thead>
+          <tbody id="ssids-body"></tbody>
+        </table>
+      </div>
+      <p class="muted small-note">Os SSIDs novos usam o mesmo acesso e a mesma rede do SSID principal (captive portal com
+        conta cadastrada ou Google). O FortiGate liga e desliga cada SSID sozinho no horário, mesmo com o painel fora do ar.</p>
     </div>
 
     <div class="table-wrap" data-panel="aps" hidden>
@@ -140,6 +154,37 @@
       <div class="actions">
         <button type="button" class="ghost" data-close>Cancelar</button>
         <button type="submit" id="device-submit">Permitir sempre</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="ssid-dialog">
+    <form id="ssid-form" method="dialog">
+      <h2 id="ssid-dialog-title">Novo SSID</h2>
+      <p id="ssid-error" class="error" hidden></p>
+      <label>Nome da rede (como aparece no celular)
+        <input name="ssid" maxlength="32" required autocomplete="off" placeholder="ex.: Acampamento-Palestra">
+      </label>
+
+      <fieldset>
+        <legend>Quando fica no ar</legend>
+        <label class="check"><input type="radio" name="mode" value="window" checked> Num período</label>
+        <div class="row" data-window>
+          <label>Começa <input name="start" type="datetime-local"></label>
+          <label>Termina <input name="end" type="datetime-local"></label>
+        </div>
+        <label class="check"><input type="radio" name="mode" value="on"> Ligado agora, até eu desligar</label>
+        <label class="check"><input type="radio" name="mode" value="off"> Desligado</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Em quais FortiAPs</legend>
+        <div id="ssid-aps" class="checks"></div>
+      </fieldset>
+
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Cancelar</button>
+        <button type="submit" id="ssid-submit">Criar SSID</button>
       </div>
     </form>
   </dialog>

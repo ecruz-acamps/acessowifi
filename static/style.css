@@ -90,12 +90,13 @@ dialog > form, dialog#cred-dialog { padding: 20px; }
 dialog > form { display: grid; gap: 12px; }
 dialog h2 { margin: 0; font-size: 18px; }
 dialog label:not(.check) { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
-dialog input:not([type=checkbox]), dialog select { width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+dialog input:not([type=checkbox]):not([type=radio]), dialog select { width: 100%; padding: 8px 10px; border: 1px solid var(--border);
   border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
 dialog input[readonly] { background: var(--neutral-bg); }
 dialog fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px 12px; margin: 0; display: grid; gap: 8px; }
 dialog legend { color: var(--muted); font-size: 13px; padding: 0 4px; }
-.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+dialog input { min-width: 0; }
 @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
 .presets { display: flex; gap: 6px; flex-wrap: wrap; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
@@ -105,3 +106,7 @@ dialog legend { color: var(--muted); font-size: 13px; padding: 0 4px; }
 .cred dd { margin: 0; font-size: 16px; font-weight: 600; }
 
 .warning { background: var(--warn-bg); color: var(--warn); padding: 10px 12px; border-radius: 6px; margin: 0; font-size: 13px; }
+
+.checks { display: grid; gap: 6px; }
+.small-note { font-size: 13px; margin: 10px 2px; }
+[data-panel="ssids"] .warning { margin-bottom: 12px; }

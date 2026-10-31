@@ -106,9 +106,88 @@ class MockFortiGate:
         return {"status": "success"}
 
     def vaps(self):
-        return [{"name": "Acampamento", "ssid": "Acampamento", "security": "captive-portal",
-                 "selected-usergroups": [{"name": "WiFi-Google"}, {"name": "WiFi-Cadastrados"}],
-                 "security-exempt-list": "WiFi-Liberados"}]
+        return self.get("cmdb/wireless-controller/vap")
+
+    # --- Tabelas genéricas do cmdb (SSIDs, FortiAPs, agendamentos, software switch) ---
+    KEYS = {"cmdb/wireless-controller/vap": "name", "cmdb/wireless-controller/wtp": "wtp-id",
+            "cmdb/wireless-controller/wtp-profile": "name", "cmdb/firewall.schedule/onetime": "name",
+            "cmdb/system/switch-interface": "name"}
+
+    def _init_tables(self):
+        radios = {"radio-1": {"mode": "ap", "vap-all": "tunnel", "vaps": []},
+                  "radio-2": {"mode": "ap", "vap-all": "tunnel", "vaps": []},
+                  "radio-3": {"mode": "monitor"}}
+        self._tables = {
+            "cmdb/wireless-controller/vap": [
+                {"name": "Acampamento", "ssid": "Acampamento", "security": "open", "captive-portal": "enable",
+                 "portal-type": "auth", "selected-usergroups": [{"name": "WiFi-Google"}, {"name": "WiFi-Cadastrados"}],
+                 "security-exempt-list": "WiFi-Liberados", "local-bridging": "disable", "schedule": "always"},
+                {"name": "Equipe", "ssid": "Equipe-Staff", "security": "wpa2-only-personal",
+                 "local-bridging": "disable", "schedule": "always"},
+            ],
+            "cmdb/wireless-controller/wtp-profile": [{"name": "FAP231F-default", **copy.deepcopy(radios)}],
+            "cmdb/wireless-controller/wtp": [
+                {"wtp-id": "FP231FTF00000001", "name": "AP-Refeitorio", "wtp-profile": "FAP231F-default",
+                 "radio-1": {"override-vaps": "disable"}, "radio-2": {"override-vaps": "disable"}},
+                {"wtp-id": "FP231FTF00000002", "name": "AP-Secretaria", "wtp-profile": "FAP231F-default",
+                 "radio-1": {"override-vaps": "disable"}, "radio-2": {"override-vaps": "disable"}},
+                {"wtp-id": "FP231FTF00000003", "name": "AP-Alojamento", "wtp-profile": "FAP231F-default",
+                 "radio-1": {"override-vaps": "disable"}, "radio-2": {"override-vaps": "disable"}},
+            ],
+            "cmdb/firewall.schedule/onetime": [],
+            "cmdb/system/switch-interface": [
+                {"name": "wifi-sw", "type": "switch", "member": [{"interface-name": "Acampamento"}]}],
+        }
+
+    def _table(self, path):
+        if not hasattr(self, "_tables"):
+            self._init_tables()
+        base = next((t for t in self.KEYS if path == t or path.startswith(t + "/")), None)
+        if base is None:
+            raise FortiGateError(f"FortiGate respondeu 404 em GET {path}", status=404)
+        mkey = path[len(base) + 1:] or None
+        return self._tables[base], self.KEYS[base], mkey
+
+    def get(self, path, **params):
+        rows, key, mkey = self._table(path)
+        if mkey is None:
+            return copy.deepcopy(rows)
+        found = [copy.deepcopy(r) for r in rows if str(r.get(key)) == mkey]
+        if not found:
+            raise FortiGateError(f"FortiGate respondeu 404 em GET {path}", status=404)
+        return found
+
+    def get_one(self, path, mkey):
+        try:
+            return self.get(f"{path}/{mkey}")[0]
+        except FortiGateError:
+            return None
+
+    def create(self, path, data):
+        rows, key, _ = self._table(path)
+        if any(r.get(key) == data.get(key) for r in rows):
+            raise FortiGateError(f"FortiGate respondeu 500 em POST {path}: entrada duplicada", status=500)
+        if path.endswith("/vap") and len(data["name"]) > 15:
+            raise FortiGateError("FortiGate respondeu 500: nome do SSID com mais de 15 caracteres", status=500)
+        rows.append(copy.deepcopy(data))
+        return {"status": "success"}
+
+    def update(self, path, mkey, data):
+        rows, key, _ = self._table(path)
+        for r in rows:
+            if str(r.get(key)) == str(mkey):
+                for k, v in copy.deepcopy(data).items():
+                    if isinstance(v, dict) and isinstance(r.get(k), dict):
+                        r[k].update(v)
+                    else:
+                        r[k] = v
+                return {"status": "success"}
+        raise FortiGateError(f"FortiGate respondeu 404 em PUT {path}/{mkey}", status=404)
+
+    def remove(self, path, mkey):
+        rows, key, _ = self._table(path)
+        rows[:] = [r for r in rows if str(r.get(key)) != str(mkey)]
+        return {"status": "success"}
 
     def policies(self):
         return [{"policyid": 3, "name": "wifi-internet", "srcintf": [{"name": "Acampamento"}],

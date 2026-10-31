@@ -285,6 +285,7 @@ def _auto_configure(cli, host, names):
     vaps = parse_table(cli.run("show wireless-controller vap"))
     policies = parse_table(cli.run("show firewall policy"))
     interfaces = parse_table(cli.run("show system interface"))
+    switches = parse_table(cli.run("show system switch-interface"))
     user_setting = cli.run("show user setting")
     ok(f"{len(vaps)} SSID(s), {len(groups)} grupo(s) de usuário, {len(policies)} política(s)")
 
@@ -331,6 +332,17 @@ def _auto_configure(cli, host, names):
                       f"segurança: {v.get('security', '?')}{', captive portal' if captive else ''})")
     vap_name = vap_names[choose("Qual SSID usa o captive portal?", labels, default)]
     vap = vaps[vap_name]
+
+    # SSIDs extras (aba SSIDs do painel): precisam ficar na mesma rede do principal
+    in_switch = next((sw for sw, cfg in switches.items() if vap_name in values(cfg.get("member"))), None)
+    if vap.get("local-bridging") == "enable":
+        ok(f"SSIDs extras: vão usar a mesma VLAN do '{vap_name}' (modo bridge).")
+    elif in_switch:
+        ok(f"SSIDs extras: vão entrar no software switch '{in_switch}', junto com o '{vap_name}'.")
+    else:
+        warn(f"SSIDs extras: o '{vap_name}' é uma rede própria (túnel, fora de software switch).")
+        warn("Para a aba SSIDs criar redes na MESMA rede dele, o SSID principal precisa estar num")
+        warn(f"software switch. Isso muda a rede e não é feito automaticamente: veja {DOCS}, \"SSIDs extras\".")
 
     group_key = next((k for k in ("selected-usergroups", "usergroup") if k in vap), "selected-usergroups")
     vap_groups = values(vap.get(group_key))
@@ -415,10 +427,12 @@ def _auto_configure(cli, host, names):
             break
 
     # 7. Perfil e admin da API
-    plan.append((f"Perfil '{names['profile']}': usuários (leitura/escrita), endereços (leitura/escrita), "
-                 "Wi-Fi e políticas (leitura)", [
-        "config system accprofile", f"edit {q(names['profile'])}", "set authgrp read-write", "set wifi read",
-        "set fwgrp custom", "config fwgrp-permission", "set address read-write", "set policy read", "end",
+    plan.append((f"Perfil '{names['profile']}': usuários, endereços, agendamentos, Wi-Fi e interfaces "
+                 "(leitura/escrita), políticas (leitura)", [
+        "config system accprofile", f"edit {q(names['profile'])}", "set authgrp read-write", "set wifi read-write",
+        "set fwgrp custom", "config fwgrp-permission", "set address read-write", "set policy read",
+        "set schedule read-write", "end",
+        "set netgrp custom", "config netgrp-permission", "set cfg read-write", "end",
         "next", "end"]))
     plan.append((f"Admin de API '{names['api_user']}', aceito só a partir de {server_ip}, e geração do token", [
         "config system api-user", f"edit {q(names['api_user'])}", 'set comments "Painel Acesso Wi-Fi"',
@@ -470,7 +484,8 @@ def _auto_configure(cli, host, names):
         info(out.strip())
         return None
     ok("Token da API gerado.")
-    return {"host": host if https_port == 443 else f"{host}:{https_port}", "token": key.group(1)}
+    return {"host": host if https_port == 443 else f"{host}:{https_port}", "token": key.group(1),
+            "main_ssid": vap_name}
 
 
 def _same_subnet(ip, net_ip, mask):
@@ -560,6 +575,9 @@ def main():
         port = host.split(":")[1] if ":" in host else ask("Porta HTTPS de administração do FortiGate", "443")
         result = {"host": host.split(":")[0] + ("" if str(port) == "443" else f":{port}"),
                   "token": manual_token(names)}
+        info("Nome interno do SSID principal (o 'edit' em config wireless-controller vap), usado como")
+        info("modelo dos SSIDs extras. Deixe em branco para não usar a aba SSIDs.")
+        result["main_ssid"] = input("   SSID principal: ").strip()
 
     if not verify_api(result["host"], result["token"], names, demo=args.demo):
         info("Causas comuns: trusted host diferente do IP deste servidor, HTTPS de administração")
@@ -599,6 +617,7 @@ def main():
     env = {
         "FGT_HOST": result["host"], "FGT_TOKEN": result["token"], "FGT_VDOM": "root", "FGT_VERIFY_SSL": "false",
         "FGT_GUEST_GROUPS": names["guest_group"], "FGT_MAC_GROUP": names["mac_group"],
+        "FGT_MAIN_SSID": result.get("main_ssid", ""),
         "MAX_VALIDITY_DAYS": "365", "TZ": tz,
         "APP_USER": panel_user, "APP_PASSWORD_HASH": generate_password_hash(pw),
         "SECRET_KEY": secrets.token_hex(32), "COOKIE_SECURE": cookie_secure, "BIND": bind,
@@ -647,6 +666,8 @@ class DemoCLI:
                                 '        set action accept\n        set srcaddr "all"\n        set dstaddr "all"\n'
                                 '        set schedule "always"\n        set service "ALL"\n'
                                 '        set groups "WiFi-Google"\n        set nat enable\n    next\nend',
+        "show system switch-interface": 'config system switch-interface\n    edit "wifi-sw"\n'
+                                        '        set member "Acampamento"\n    next\nend',
         "show system interface": 'config system interface\n    edit "internal"\n'
                                  '        set ip 192.168.1.99 255.255.255.0\n        set allowaccess ping ssh\n'
                                  '    next\nend',

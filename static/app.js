@@ -1,5 +1,6 @@
 const REFRESH_MS = 30_000;
-const state = { tab: "clients", clients: [], users: [], devices: [], aps: [], groups: [], editing: null, device: null };
+const state = { tab: "clients", clients: [], users: [], devices: [], aps: [], groups: [], editing: null, device: null,
+  ssid: { ready: false, reason: "", aps: [], ssids: [] }, ssidError: "", editingSsid: null };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -199,12 +200,52 @@ function renderAps(q) {
   }
 }
 
+const SSID_STATUS = { "no ar": "ok", agendado: "info", encerrado: "neutral", desligado: "neutral" };
+
+function renderSsids(q) {
+  const body = $("#ssids-body");
+  body.replaceChildren();
+  const notice = state.ssidError || (!state.ssid.ready && state.ssid.reason);
+  $("#ssid-notice").textContent = notice || "";
+  $("#ssid-notice").hidden = !notice;
+  const apName = Object.fromEntries(state.ssid.aps.map((a) => [a.id, a.name]));
+  const rows = state.ssid.ssids.filter((x) => matches(x, q));
+  if (!rows.length) return emptyRow(body, 5, "Nenhum SSID.");
+
+  for (const x of rows) {
+    const tr = document.createElement("tr");
+    const when = x.mode === "window" ? `${fmtDate(x.start)} até ${fmtDate(x.end)}`
+      : x.mode === "on" ? "sempre" : x.mode === "off" ? "–" : x.status;
+    const aps = x.aps.length === state.ssid.aps.length && x.aps.length ? "todos"
+      : x.aps.map((id) => apName[id] || id).join(", ") || "nenhum";
+    const actions = document.createElement("td");
+    actions.className = "actions-cell";
+    if (x.managed) {
+      actions.append(
+        x.status === "no ar" ? actionButton("Desligar", "", () => setSsidMode(x, "off"))
+          : actionButton("Ligar agora", "", () => setSsidMode(x, "on")),
+        actionButton("Editar", "", () => openSsidDialog(x)),
+        actionButton("Remover", "danger", () => removeSsid(x)),
+      );
+    }
+    tr.append(
+      cell(el("div", x.ssid, "strong"), x.main ? el("small", "SSID principal", "muted") : !x.managed ? el("small", "criado fora do painel", "muted") : null),
+      cell(when),
+      cell(aps),
+      cell(badge(x.status, SSID_STATUS[x.status] || "neutral")),
+      actions,
+    );
+    body.append(tr);
+  }
+}
+
 function render() {
   const q = $("#search").value.trim().toLowerCase();
-  ({ clients: renderClients, users: renderUsers, devices: renderDevices, aps: renderAps })[state.tab](q);
+  ({ clients: renderClients, users: renderUsers, devices: renderDevices, ssids: renderSsids, aps: renderAps })[state.tab](q);
 
   const isUsers = state.tab === "users";
   $("#new-user").hidden = !isUsers || !state.groups.length;
+  $("#new-ssid").hidden = state.tab !== "ssids" || !state.ssid.ready || !!state.ssidError;
   $("#show-expired-wrap").hidden = !isUsers;
 
   $("#stat-online").textContent = state.clients.filter((c) => c.username).length;
@@ -237,6 +278,9 @@ async function load() {
       ["/api/clients", "/api/users", "/api/devices", "/api/aps", "/api/groups"].map((u) => api(u)),
     );
     showError("");
+    // SSIDs à parte: sem a permissão nova no token, só esta aba mostra o aviso
+    await api("/api/ssids").then((d) => { state.ssid = d; state.ssidError = ""; })
+      .catch((e) => { state.ssidError = e.message; });
     $("#updated").textContent = `Atualizado às ${new Date().toLocaleTimeString("pt-BR")}`;
     render();
   } catch (e) {
@@ -395,6 +439,90 @@ async function removeDevice(d) {
   }
 }
 
+// --- SSIDs ---
+
+const ssidDialog = $("#ssid-dialog");
+const ssidForm = $("#ssid-form");
+const sf = ssidForm.elements;
+
+function syncWindowFields() {
+  const isWindow = sf.mode.value === "window";
+  ssidForm.querySelector("[data-window]").hidden = !isWindow;
+  sf.start.required = sf.end.required = isWindow;
+}
+ssidForm.querySelectorAll("input[name=mode]").forEach((r) => r.addEventListener("change", syncWindowFields));
+
+function openSsidDialog(x = null) {
+  state.editingSsid = x;
+  ssidForm.reset();
+  $("#ssid-error").hidden = true;
+  $("#ssid-dialog-title").textContent = x ? `Editar ${x.ssid}` : "Novo SSID";
+  $("#ssid-submit").textContent = x ? "Salvar" : "Criar SSID";
+  const box = $("#ssid-aps");
+  box.replaceChildren(...state.ssid.aps.map((a) => {
+    const label = el("label", null, "check");
+    const input = document.createElement("input");
+    input.type = "checkbox"; input.name = "aps"; input.value = a.id;
+    input.checked = x ? x.aps.includes(a.id) : true;
+    label.append(input, document.createTextNode(` ${a.name}`));
+    return label;
+  }));
+  sf.ssid.value = x ? x.ssid : "";
+  const mode = x && ["on", "off", "window"].includes(x.mode) ? x.mode : "window";
+  ssidForm.querySelector(`input[name=mode][value=${mode}]`).checked = true;
+  const start = new Date(); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
+  sf.start.value = x?.start || localInput(start);
+  sf.end.value = x?.end || endOfDayPlus(2);
+  syncWindowFields();
+  ssidDialog.showModal();
+  sf.ssid.focus();
+}
+
+ssidForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const x = state.editingSsid;
+  const payload = {
+    ssid: sf.ssid.value.trim(),
+    mode: sf.mode.value,
+    aps: [...ssidForm.querySelectorAll("input[name=aps]:checked")].map((i) => i.value),
+  };
+  if (payload.mode === "window") Object.assign(payload, { start: sf.start.value, end: sf.end.value });
+  const submit = $("#ssid-submit");
+  submit.disabled = true;
+  try {
+    if (x) await api(`/api/ssids/${encodeURIComponent(x.name)}`, { method: "PUT", body: JSON.stringify(payload) });
+    else await api("/api/ssids", { method: "POST", body: JSON.stringify(payload) });
+    ssidDialog.close();
+    await load();
+  } catch (e) {
+    $("#ssid-error").textContent = e.message;
+    $("#ssid-error").hidden = false;
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+async function setSsidMode(x, mode) {
+  try {
+    await api(`/api/ssids/${encodeURIComponent(x.name)}`, { method: "PUT", body: JSON.stringify({ mode }) });
+    await load();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function removeSsid(x) {
+  if (!confirm(`Remover o SSID "${x.ssid}"? Ele sai do ar em todos os FortiAPs.`)) return;
+  try {
+    await api(`/api/ssids/${encodeURIComponent(x.name)}`, { method: "DELETE" });
+    await load();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+$("#new-ssid").addEventListener("click", () => openSsidDialog());
+
 const credDialog = $("#cred-dialog");
 
 function showCredentials({ username, password, expiration }) {
@@ -436,4 +564,4 @@ $("#refresh").addEventListener("click", load);
 $("#new-user").addEventListener("click", () => openUserDialog());
 
 load();
-setInterval(() => { if (!document.hidden && !dialog.open && !credDialog.open && !deviceDialog.open) load(); }, REFRESH_MS);
+setInterval(() => { if (!document.hidden && !dialog.open && !credDialog.open && !deviceDialog.open && !ssidDialog.open) load(); }, REFRESH_MS);

@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash
 
+import ssids
 from fortigate import FortiGate, FortiGateError
 
 ENV_FILE = Path(__file__).resolve().with_name(".env")
@@ -107,6 +108,11 @@ def index():
 def fortigate_error(e):
     app.logger.error("FortiGate: %s", e)
     return jsonify(error=str(e)), 502
+
+
+@app.errorhandler(ssids.SSIDError)
+def ssid_error(e):
+    return jsonify(error=str(e)), 400
 
 
 @app.errorhandler(BadRequest)
@@ -532,6 +538,41 @@ def api_remove_device(mac):
     return jsonify(ok=True)
 
 
+# --- SSIDs extras (com agendamento e escolha de FortiAPs) ---
+
+@app.get("/api/ssids")
+@login_required
+def api_ssids():
+    return jsonify(ssids.list_ssids(fgt))
+
+
+@app.post("/api/ssids")
+@login_required
+def api_create_ssid():
+    data = request.get_json(silent=True) or {}
+    name = ssids.create_ssid(fgt, data)
+    app.logger.info("%s criou o SSID '%s' (%s), modo %s, APs %s", session["user"], data.get("ssid"), name,
+                    data.get("mode"), ", ".join(data.get("aps") or []))
+    return jsonify(ok=True, name=name), 201
+
+
+@app.put("/api/ssids/<name>")
+@login_required
+def api_update_ssid(name):
+    data = request.get_json(silent=True) or {}
+    ssids.update_ssid(fgt, name, data)
+    app.logger.info("%s alterou o SSID %s: %s", session["user"], name, ", ".join(sorted(data)))
+    return jsonify(ok=True)
+
+
+@app.delete("/api/ssids/<name>")
+@login_required
+def api_delete_ssid(name):
+    ssids.delete_ssid(fgt, name)
+    app.logger.info("%s removeu o SSID %s", session["user"], name)
+    return jsonify(ok=True)
+
+
 @app.cli.command("check-fortigate")
 @click.option("--escrita", is_flag=True, help="Também cria e apaga um usuário e um endereço de teste.")
 def check_fortigate_command(escrita):
@@ -574,6 +615,13 @@ def check_fortigate_command(escrita):
     has_guest = check("Grupo(s) guest para cadastro", guest_groups)
     has_mac = check(f"Grupo de endereços '{MAC_GROUP}'",
                     lambda: f"{len(fgt.address_group(MAC_GROUP).get('member') or [])} membro(s)")
+
+    def ssid_check():
+        ready, reason, switch = ssids.readiness(fgt)
+        if not ready:
+            raise FortiGateError(reason)
+        return f"principal '{ssids.main_vap_name()}'" + (f", software switch '{switch}'" if switch else ", modo bridge")
+    check("SSIDs extras (aba SSIDs)", ssid_check)
 
     if escrita and has_guest:
         group = managed_groups(groups)[0]

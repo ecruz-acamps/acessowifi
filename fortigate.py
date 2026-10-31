@@ -7,7 +7,9 @@ import urllib3
 
 
 class FortiGateError(Exception):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 class FortiGate:
@@ -43,8 +45,10 @@ class FortiGate:
 
         if r.status_code in (401, 403):
             raise FortiGateError(
-                f"FortiGate recusou o acesso ({r.status_code}). Verifique o token, "
-                "o perfil do admin REST API e o 'trusted host'."
+                f"FortiGate recusou o acesso ({r.status_code}) em {path}. Se for uma função nova do "
+                "painel, o token ainda não tem essa permissão: rode ./deploy/install.sh e responda "
+                "sim para refazer a configuração. Senão, verifique o token e o trusted host.",
+                status=r.status_code,
             )
         try:
             data = r.json()
@@ -54,7 +58,8 @@ class FortiGate:
             self.version = data["version"]   # ex.: "v7.4.13", vem em toda resposta da API
         if not r.ok or data.get("status") == "error":
             detail = data.get("cli_error") or data.get("error") or r.reason
-            raise FortiGateError(f"FortiGate respondeu {r.status_code} em {method} {path}: {detail}")
+            raise FortiGateError(f"FortiGate respondeu {r.status_code} em {method} {path}: {detail}",
+                                 status=r.status_code)
         return data
 
     def get(self, path, **params):
@@ -71,6 +76,29 @@ class FortiGate:
         data = self._request(method, path, json=json)
         self._cache.clear()
         return data
+
+    # --- Operações genéricas em tabelas do cmdb ---
+    @staticmethod
+    def _item(path, mkey):
+        return f"{path}/{quote(str(mkey), safe='')}"
+
+    def get_one(self, path, mkey):
+        try:
+            results = self.get(self._item(path, mkey))
+        except FortiGateError as e:
+            if e.status == 404:
+                return None
+            raise
+        return results[0] if results else None
+
+    def create(self, path, data):
+        return self._write("POST", path, json=data)
+
+    def update(self, path, mkey, data):
+        return self._write("PUT", self._item(path, mkey), json=data)
+
+    def remove(self, path, mkey):
+        return self._write("DELETE", self._item(path, mkey))
 
     # --- Configuração (cmdb) ---
     def local_users(self):

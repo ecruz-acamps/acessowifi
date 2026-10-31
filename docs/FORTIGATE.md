@@ -19,6 +19,7 @@ Guia para FortiGate 40F com FortiAP e **FortiOS 7.4** (testado no formato do 7.4
 | Perfil de admin | Permissões mínimas do token | `api-acessowifi` |
 | Admin de API com trusted host | O token que o painel usa | `acessowifi` |
 | HTTPS de administração na interface | A API REST funciona por HTTPS | — |
+| SSID principal num software switch (ou em bridge) | SSIDs extras na mesma rede do principal | o seu switch |
 
 O painel se conecta **só pela API REST, com token**. Ele não guarda usuário nem senha de admin do FortiGate.
 
@@ -161,8 +162,9 @@ Se a porta HTTPS de administração não for 443 (*System > Settings > HTTPS por
 
 **Perfil** — *System > Admin Profiles > Create New*, nome `api-acessowifi`:
 - *User & Authentication*: **Read/Write**
-- *WiFi & Switch*: **Read**
-- *Firewall*: **Custom** → *Address*: **Read/Write**, *Policy*: **Read**, o resto **None**
+- *WiFi & Switch*: **Read/Write** (criar SSIDs e escolher em quais FortiAPs aparecem)
+- *Firewall*: **Custom** → *Address*: **Read/Write**, *Policy*: **Read**, *Schedule*: **Read/Write**, o resto **None**
+- *Network*: **Custom** → *Configuration*: **Read/Write** (incluir SSIDs extras no software switch), o resto **None**
 - todo o resto: **None**
 
 **Admin** — *System > Administrators > Create New > REST API Admin*:
@@ -176,11 +178,16 @@ Se a porta HTTPS de administração não for 443 (*System > Settings > HTTPS por
 config system accprofile
     edit "api-acessowifi"
         set authgrp read-write
-        set wifi read
+        set wifi read-write
         set fwgrp custom
         config fwgrp-permission
             set address read-write
             set policy read
+            set schedule read-write
+        end
+        set netgrp custom
+        config netgrp-permission
+            set cfg read-write
         end
     next
 end
@@ -207,6 +214,31 @@ A validade das contas é gravada na **hora local**. O FortiGate (*System > Setti
 
 ---
 
+## SSIDs extras (aba SSIDs)
+
+A aba **SSIDs** do painel cria redes Wi-Fi adicionais, por exemplo "Acampamento-Palestra", só no AP do auditório e só durante o evento:
+
+- **Acesso:** o SSID novo copia a segurança do principal: mesmo captive portal, grupos (contas cadastradas e Google) e lista de exceção. Nada de senha compartilhada.
+- **Quando fica no ar:** num período (início e fim), ligado até você desligar, ou desligado. O painel usa o **agendamento nativo do SSID** (campo `schedule` em `config wireless-controller vap`) com agendamentos únicos do firewall (`aw-<nome>`), então **o FortiGate liga e desliga sozinho**, mesmo com o painel fora do ar. "Desligado" aponta para o agendamento vencido `aw-desligado`.
+- **Em quais FortiAPs:** cada AP passa a ter a própria lista de SSIDs por rádio (*Override* em *Managed FortiAPs*). Depois de cada mudança, o painel confere se o **SSID principal continua em todos os APs onde estava**; se não, desfaz a mudança.
+- O painel só altera ou remove SSIDs criados por ele (nome interno começando com `aw-`). O principal e os outros SSIDs aparecem na lista, mas não podem ser alterados pela aba.
+
+### Mesma rede do SSID principal
+
+No FortiGate, cada SSID em modo **túnel** (o padrão) é uma interface separada, com a própria faixa de IP. Para outro SSID usar a **mesma** rede, há dois caminhos:
+
+1. **SSID principal num software switch:** o IP, o DHCP, o captive portal e as políticas ficam no switch, e o painel só inclui o SSID novo como membro. É o caso mais comum quando a rede foi pensada para vários SSIDs.
+2. **SSID principal em modo bridge** (*local bridging*, com ou sem VLAN): o SSID novo usa a mesma VLAN, sem mais nada.
+
+O instalador e o `acessowifi testar` dizem em qual caso você está. Se o SSID principal for uma rede própria em túnel, **fora** de software switch, a aba mostra o aviso e não cria SSIDs, porque eles ficariam sem rede.
+
+Colocar o SSID principal num software switch **muda a rede do Wi-Fi** e não é feito automaticamente. Em resumo:
+- remover o servidor DHCP e as políticas que usam o SSID;
+- criar o software switch (*Network > Interfaces > Create New > Interface*, tipo *Software Switch*) com o SSID como membro;
+- recriar no switch o IP, o DHCP, o captive portal, os grupos, a lista de exceção e as políticas.
+
+O Wi-Fi fica fora durante a troca, então faça numa janela de manutenção. Para preparar os comandos exatos para o seu FortiGate, use a saída de `show wireless-controller vap <SSID>`, `show system interface <SSID>`, `show system dhcp server` e `show firewall policy`.
+
 ## Como conferir
 
 No servidor, como root:
@@ -230,6 +262,8 @@ Ele testa a conexão, as permissões e os grupos. Também cria e apaga um usuár
 | Aparelho "Permitir sempre" continua caindo no portal | Lista de exceção fora do SSID; MAC aleatório mudou | Passo 3; veja o aviso de MAC aleatório no painel |
 | Aparelho liberado conecta mas não navega | Política exige grupo de usuário | Passo 4 |
 | Validade adiantada ou atrasada algumas horas | Fusos diferentes | Passo 8 |
+| Aba SSIDs: "o token ainda não tem essa permissão" / 403 | Instalação feita antes da aba SSIDs | `./deploy/install.sh`, responda **sim** para refazer a configuração (o perfil ganha as permissões novas) |
+| Aba SSIDs: "o SSID principal é uma rede própria" | SSID principal em túnel fora de software switch | Veja [SSIDs extras](#ssids-extras-aba-ssids) |
 | Modo automático: `Permission denied` / `Command fail` | Admin informado não é super_admin | Use um admin com perfil super_admin |
 | Modo automático: "usa VDOMs" | VDOMs habilitados | Use o modo manual, com os comandos dentro de `config vdom` / `config global` |
 | `command parse error before 'vdom'` no admin de API | FortiOS 7.2 sem VDOMs não tem esse campo | Apague a linha `set vdom "root"` (só no 7.2) |
