@@ -84,14 +84,36 @@ env_set() {  # env_set CHAVE valor: grava/atualiza no .env
   if grep -q "^$1=" "$APP_DIR/.env"; then sed -i "s|^$1=.*|$1='$2'|" "$APP_DIR/.env"
   else echo "$1='$2'" >> "$APP_DIR/.env"; fi
 }
+free_port() {  # primeira porta livre a partir de $1
+  local p=$1
+  while [ -n "$(port_owner "$p")" ]; do p=$((p + 1)); done
+  echo "$p"
+}
 without_nginx() {  # passa o painel a escutar direto na rede, sem HTTPS
-  local port=${1:-8080}
+  local port
+  port=$(free_port 8080)
   env_set BIND "0.0.0.0:$port"
+  APP_PORT=$port
   env_set COOKIE_SECURE false
   rm -f /etc/nginx/sites-enabled/acessowifi /etc/nginx/conf.d/acessowifi.conf
   USE_NGINX=0
   info "Painel configurado sem nginx, direto na porta $port (HTTP, use só na rede interna)."
 }
+
+# ---------------------------------------------------------------- porta interna do painel
+# O painel (gunicorn) escuta na porta do BIND; se outro programa já a usa, o painel não sobe
+# e o nginx responde "502 Bad Gateway". Para o serviço antes, para não confundir com ele mesmo.
+[ "$HAS_SYSTEMD" = 1 ] && systemctl stop acessowifi 2>/dev/null || true
+BIND_NOW=$(sed -n "s/^BIND='\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "$APP_DIR/.env")
+BIND_HOST=${BIND_NOW%:*}; APP_PORT=${BIND_NOW##*:}
+OWNER=$(port_owner "$APP_PORT")
+if [ -n "$OWNER" ]; then
+  NEW_PORT=$(free_port $((APP_PORT + 1)))
+  say "Porta interna do painel"
+  info "A porta $APP_PORT já é usada por '$OWNER'. O painel vai usar a porta $NEW_PORT."
+  APP_PORT=$NEW_PORT
+  env_set BIND "$BIND_HOST:$APP_PORT"
+fi
 
 HTTPS_PORT=$(sed -n "s/^HTTPS_PORT='\{0,1\}\([0-9]*\).*/\1/p" "$APP_DIR/.env")
 HTTPS_PORT=${HTTPS_PORT:-443}
@@ -141,14 +163,25 @@ if [ "$USE_NGINX" = 1 ]; then
   fi
   # O arquivo é do painel: sempre regenerado, para refletir a porta escolhida
   sed -e 's/server_name .*;/server_name _;/' -e "s/listen 443 ssl;/listen $HTTPS_PORT ssl;/" \
+    -e "s#proxy_pass http://127.0.0.1:[0-9]*;#proxy_pass http://127.0.0.1:$APP_PORT;#" \
     "$APP_DIR/deploy/nginx.conf" > "$NGINX_CONF"
 
-  NGINX_OK=1
-  if ! nginx -t 2>/tmp/acessowifi-nginx.log; then
-    NGINX_OK=0
-  elif [ "$HAS_SYSTEMD" = 1 ]; then
+  start_nginx() {
+    nginx -t 2>/tmp/acessowifi-nginx.log || return 1
+    [ "$HAS_SYSTEMD" = 1 ] || return 0
     systemctl enable -q nginx
-    systemctl reload-or-restart nginx 2>>/tmp/acessowifi-nginx.log || NGINX_OK=0
+    systemctl reload-or-restart nginx 2>>/tmp/acessowifi-nginx.log
+  }
+  NGINX_OK=1
+  if ! start_nginx; then
+    NGINX_OK=0
+    # O site padrão do Debian também escuta em IPv6 ([::]:80) e na porta 80: com IPv6
+    # desativado ou a 80 ocupada, ele impede o nginx de subir. O painel não precisa dele.
+    if [ -L /etc/nginx/sites-enabled/default ]; then
+      info "O nginx falhou; tentando de novo sem o site padrão do nginx (o arquivo continua em sites-available)."
+      rm -f /etc/nginx/sites-enabled/default
+      start_nginx && NGINX_OK=1
+    fi
   fi
   if [ "$NGINX_OK" = 0 ]; then
     info "O nginx não iniciou. Motivo:"
@@ -156,8 +189,8 @@ if [ "$USE_NGINX" = 1 ]; then
       | grep -iE "emerg|error|fail|bind|address" | sort -u | sed 's/^/      /' | tail -10 || true
     info "Portas em uso: $(ss -ltnH 2>/dev/null | awk '{print $4}' | sed 's/.*://' | sort -un | tr '\n' ' ')"
     info "Para voltar ao HTTPS depois: corrija a causa e rode o instalador respondendo sim para refazer a configuração."
-    if yes_no "Continuar sem nginx (painel em HTTP na porta 8080)?" S; then
-      without_nginx 8080
+    if yes_no "Continuar sem nginx (painel em HTTP, porta 8080 ou a próxima livre)?" S; then
+      without_nginx
     else
       echo "Corrija o problema acima e rode o instalador de novo (responda não para refazer a configuração)."
       exit 1
@@ -184,9 +217,24 @@ if [ "$HAS_SYSTEMD" = 1 ]; then
   systemctl enable -q acessowifi acessowifi-cleanup.timer
   systemctl restart acessowifi
   systemctl start acessowifi-cleanup.timer
-  sleep 2
-  systemctl is-active -q acessowifi && info "Serviço acessowifi rodando." \
-    || { info "O serviço não subiu. Veja: journalctl -u acessowifi -n 50"; exit 1; }
+  # Confere se o painel responde de fato (o serviço pode subir e cair logo depois)
+  APP_UP=0
+  for _ in $(seq 1 15); do
+    if "$PY" -c 'import sys, urllib.request as u
+u.build_opener(u.ProxyHandler({})).open(sys.argv[1], timeout=2)' "http://127.0.0.1:$APP_PORT/login" 2>/dev/null; then
+      APP_UP=1; break
+    fi
+    sleep 1
+  done
+  if [ "$APP_UP" = 1 ]; then
+    info "Painel respondendo na porta interna $APP_PORT."
+  else
+    info "O painel não respondeu. Últimas linhas do log:"
+    journalctl -u acessowifi -n 25 --no-pager -o cat 2>/dev/null | tail -15 | sed 's/^/      /' || true
+    info "Status: $(systemctl is-active acessowifi 2>/dev/null || true)"
+    info "Mande essa saída para análise ou veja: journalctl -u acessowifi -n 50"
+    exit 1
+  fi
 else
   info "systemd não encontrado: inicie manualmente com"
   info "  cd $APP_DIR && sudo -u $SVC_USER .venv/bin/gunicorn -w 2 -b \$BIND app:app"
