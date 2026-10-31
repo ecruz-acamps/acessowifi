@@ -12,7 +12,8 @@ Painel interno (Flask + HTML/JS puro) para o Wi-Fi de um acampamento: FortiGate 
 - `flask cleanup-devices`: remove liberações vencidas e órfãs. Roda pelo systemd timer a cada 5 min.
 - `mock_data.py`: FortiGate fictício e com estado, usado com `DEMO_MODE=1`.
 - `static/`: frontend. Renderize sempre com `textContent`/DOM, nunca com `innerHTML`, porque hostname e usuário vêm dos dispositivos.
-- `deploy/`: unidade systemd e exemplo de nginx.
+- `deploy/`: `install.sh` (instalador interativo; gera `/opt/acessowifi/.env`), `fortigate-setup.conf` (CLI para o FortiGate), unidades systemd e nginx.
+- `flask --app app check-fortigate [--escrita]`: diagnóstico de conexão, permissões e grupos. Rode-o primeiro quando algo não funcionar.
 
 Regras:
 - Hospedado on-premise; não adicionar dependências de nuvem/CDN.

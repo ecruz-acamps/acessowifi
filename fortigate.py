@@ -20,6 +20,9 @@ class FortiGate:
 
         self.session = requests.Session()
         self.session.headers["Authorization"] = f"Bearer {token}"
+        # O FortiGate está na rede local: ignora HTTPS_PROXY/REQUESTS_CA_BUNDLE do ambiente,
+        # que senão desviariam a conexão ou anulariam o verify abaixo
+        self.session.trust_env = False
         # verify pode ser True/False ou o caminho do certificado (CA) do FortiGate
         self.session.verify = verify
         if verify is False:

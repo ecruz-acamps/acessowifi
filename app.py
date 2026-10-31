@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 from functools import wraps
 
+import click
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash
@@ -524,6 +525,83 @@ def api_remove_device(mac):
     remove_device(device)
     app.logger.info("%s removeu a liberação de %s (%s)", session["user"], mac, device["username"])
     return jsonify(ok=True)
+
+
+@app.cli.command("check-fortigate")
+@click.option("--escrita", is_flag=True, help="Também cria e apaga um usuário e um endereço de teste.")
+def check_fortigate_command(escrita):
+    """Testa a conexão, as permissões do token e os grupos configurados."""
+    failures = 0
+
+    def check(label, fn):
+        nonlocal failures
+        try:
+            detail = fn()
+            print(f"  [OK]   {label}" + (f" — {detail}" if detail else ""))
+            return True
+        except Exception as e:  # noqa: BLE001 — o objetivo é relatar qualquer falha
+            failures += 1
+            print(f"  [ERRO] {label} — {e}")
+            return False
+
+    print(f"FortiGate: {os.getenv('FGT_HOST', '(demo)')}  vdom: {os.getenv('FGT_VDOM', 'root')}")
+    if not check("Conexão e token (lista de usuários)", lambda: f"{len(fgt.local_users())} usuário(s) local(is)"):
+        print("\nSem conexão: confira FGT_HOST, FGT_TOKEN, o trusted host e 'allowaccess https' na interface.")
+        raise SystemExit(1)
+
+    groups = fgt.user_groups()
+    check("Grupos de usuário", lambda: f"{len(groups)} grupo(s)")
+    check("Clientes Wi-Fi (FortiAP)", lambda: f"{len(fgt.wifi_clients())} conectado(s)")
+    check("Usuários autenticados (captive portal)", lambda: f"{len(fgt.firewall_auth_users())} sessão(ões)")
+    check("Access points", lambda: f"{len(fgt.managed_aps())} AP(s)")
+    check("Servidores SAML (Google)", lambda: ", ".join(_names(fgt.saml_servers())) or "nenhum")
+
+    def guest_groups():
+        found = managed_groups(groups)
+        missing = [g for g in GUEST_GROUPS if g not in found]
+        if missing:
+            raise FortiGateError(f"grupo(s) guest não encontrado(s): {', '.join(missing)}")
+        if not found:
+            raise FortiGateError("nenhum grupo do tipo guest")
+        return ", ".join(found)
+
+    has_guest = check("Grupo(s) guest para cadastro", guest_groups)
+    has_mac = check(f"Grupo de endereços '{MAC_GROUP}'",
+                    lambda: f"{len(fgt.address_group(MAC_GROUP).get('member') or [])} membro(s)")
+
+    if escrita and has_guest:
+        group = managed_groups(groups)[0]
+        exp = (datetime.now() + timedelta(hours=1)).strftime(FGT_DATE)
+
+        def guest_roundtrip():
+            fgt.add_guest(group, {"user-id": "acessowifi.teste", "password": generate_password(),
+                                  "name": "Teste do painel", "expiration": exp})
+            saved = next(gu for g in fgt.user_groups() if g["name"] == group
+                         for gu in g.get("guest") or [] if gu.get("user-id") == "acessowifi.teste")
+            fgt.delete_guest(group, saved["id"])
+            if saved.get("expiration") != exp:
+                raise FortiGateError(f"validade gravada como '{saved.get('expiration')}', esperado '{exp}'")
+            return f"criado e apagado em {group}, validade gravada corretamente"
+
+        check("Escrita: usuário guest de teste", guest_roundtrip)
+
+    if escrita and has_mac:
+        name = MAC_PREFIX + "teste"
+
+        def address_roundtrip():
+            fgt.create_address({"name": name, "type": "mac", "macaddr": [{"macaddr": "02:11:22:33:44:55"}],
+                                "comment": "acessowifi;teste"})
+            try:
+                fgt.add_group_member(MAC_GROUP, name)
+                fgt.remove_group_member(MAC_GROUP, name)
+            finally:
+                fgt.delete_address(name)
+            return f"criado, incluído em {MAC_GROUP} e apagado"
+
+        check("Escrita: endereço MAC de teste", address_roundtrip)
+
+    print("\nTudo certo!" if not failures else f"\n{failures} problema(s) encontrado(s). Veja o README.")
+    raise SystemExit(1 if failures else 0)
 
 
 @app.cli.command("cleanup-devices")

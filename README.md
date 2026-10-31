@@ -16,6 +16,24 @@ Navegador ──HTTPS──> nginx ──> Flask (este app) ──HTTPS + token�
 
 O token do FortiGate fica só no servidor e nunca chega ao navegador.
 
+## Implantação em 3 passos
+
+1. **FortiGate:** abra `deploy/fortigate-setup.conf`, troque o IP do servidor e cole os comandos na CLI do FortiGate. O último comando gera o **token da API**; copie na hora.
+2. **Servidor:** `sudo ./deploy/install.sh` e responda às perguntas (IP do FortiGate, token, usuário e senha do painel).
+3. **Navegador:** abra o endereço que o instalador mostrar no final.
+
+### Onde ficam o "usuário e senha" do FortiGate?
+
+O painel **não usa usuário e senha** de admin do FortiGate. Ele se conecta pela **API REST com um token**, que é o jeito recomendado pela Fortinet:
+
+- o token pertence a um *REST API Admin* (`acessowifi`) com permissões só do que o painel precisa;
+- ele só funciona a partir do IP do servidor (*trusted host*);
+- ele fica em `/opt/acessowifi/.env` (`FGT_HOST` e `FGT_TOKEN`), legível só pelo root e pelo serviço, e nunca vai para o navegador.
+
+O **usuário e a senha que você escolhe no instalador** são só para entrar no painel.
+
+Se o token vazar ou você quiser trocá-lo: `execute api-user generate-key acessowifi` no FortiGate gera um novo e invalida o anterior. Atualize `FGT_TOKEN` no `.env` e reinicie o serviço.
+
 ## Como funciona o cadastro
 
 Os usuários criados pelo painel são **contas de visitante (guest)** dentro de um grupo do tipo *guest* do FortiGate (por padrão, `WiFi-Cadastrados`). É o recurso nativo do FortiOS para contas com expiração:
@@ -42,6 +60,8 @@ Na aba **Conectados agora**, o botão **Permitir sempre** aparece em quem já fe
 - O tráfego de aparelhos liberados não fica associado ao usuário nos logs do FortiGate, porque eles não fazem login. O painel mostra o dono pelo vínculo salvo.
 
 ## 1. Preparar o FortiGate (FortiOS 7.2)
+
+Tudo desta seção está pronto para colar em `deploy/fortigate-setup.conf`. Abaixo, a explicação de cada parte.
 
 **a) Grupo de visitantes**, para as contas criadas pelo painel:
 ```
@@ -169,27 +189,42 @@ Se esses testes funcionarem, o painel vai funcionar. Para remover a conta de tes
 
 ## 2. Instalar no servidor (Linux)
 
+Debian/Ubuntu com systemd. O instalador faz tudo e pergunta só o necessário:
+
+```bash
+git clone https://github.com/ecruz-acamps/acessowifi
+cd acessowifi
+sudo ./deploy/install.sh
+```
+
+Ele instala o Python e as bibliotecas, copia o painel para `/opt/acessowifi`, pede **IP e token do FortiGate** e o **usuário e a senha do painel**, cria o `.env` protegido e (opcionalmente) instala o nginx com HTTPS. Depois ativa os serviços e **testa a conexão com o FortiGate**, inclusive a escrita.
+
+- **Atualizar:** `git pull && sudo ./deploy/install.sh`. A configuração em `/opt/acessowifi/.env` é mantida.
+- **Mudar IP/token/senha:** edite `/opt/acessowifi/.env` e rode `sudo systemctl restart acessowifi`. Para refazer tudo pelas perguntas, apague o `.env` e rode o instalador de novo.
+- **Testar o FortiGate a qualquer momento:**
+  `cd /opt/acessowifi && sudo -u acessowifi .venv/bin/flask --app app check-fortigate --escrita`
+- **Log** (inclui quem cadastrou, alterou ou removeu cada usuário e aparelho): `journalctl -u acessowifi -f`
+
+Não publique o painel na internet; restrinja à rede da administração. Para trocar o certificado autoassinado por um seu, substitua `/etc/ssl/acessowifi/cert.pem` e `key.pem` e rode `systemctl reload nginx`.
+
+<details><summary>Instalação manual (sem o instalador)</summary>
+
 ```bash
 sudo useradd -r -s /usr/sbin/nologin acessowifi
 sudo git clone https://github.com/ecruz-acamps/acessowifi /opt/acessowifi && cd /opt/acessowifi
 sudo python3 -m venv .venv && sudo .venv/bin/pip install -r requirements.txt
-sudo cp .env.example .env && sudo nano .env      # FGT_HOST, FGT_TOKEN, hash da senha, SECRET_KEY
-sudo chown -R acessowifi: /opt/acessowifi && sudo chmod 600 .env
-
-sudo cp deploy/acessowifi.service /etc/systemd/system/
-sudo cp deploy/acessowifi-cleanup.service deploy/acessowifi-cleanup.timer /etc/systemd/system/
+sudo cp .env.example .env && sudo nano .env
+sudo chown root:acessowifi .env && sudo chmod 640 .env
+sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now acessowifi acessowifi-cleanup.timer
-journalctl -u acessowifi -f      # log, incluindo quem cadastrou/alterou/removeu cada usuário
 ```
-
-Gerar a senha do painel e a chave de sessão:
+Hash da senha do painel e chave de sessão:
 ```bash
 .venv/bin/python -c "from werkzeug.security import generate_password_hash as g; print(g(input('Senha: ')))"
 .venv/bin/python -c "import secrets; print(secrets.token_hex(32))"
 ```
-> No `.env`, coloque o hash entre aspas simples, porque ele contém `$`.
-
-Depois configure o nginx com HTTPS usando `deploy/nginx.conf` como base. Não publique o painel na internet; restrinja à rede da administração.
+No `.env`, coloque o hash entre aspas simples, porque ele contém `$`. Para HTTPS, use `deploy/nginx.conf` como base.
+</details>
 
 ## 3. Testar sem o FortiGate
 
