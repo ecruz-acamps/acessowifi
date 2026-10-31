@@ -271,6 +271,13 @@ Ele testa a conexão, as permissões e os grupos. Também cria e apaga um usuár
 | `command parse error before 'vdom'` no admin de API | FortiOS 7.2 sem VDOMs não tem esse campo | Apague a linha `set vdom "root"` (só no 7.2) |
 | `recusou o acesso (403)` logo após atualizar para o 7.4 | Admin de API sem `set vdom "root"` (bug conhecido do 7.4.5, corrigido no 7.4.6) ou permissões ajustadas pela atualização | `config system api-user` → `edit "acessowifi"` → `set vdom "root"`; se continuar, gere um token novo e rode o instalador de novo |
 
+## Problemas com o app (PWA) e o certificado
+
+| Sintoma | Causa | Solução |
+|---|---|---|
+| Tela "Sem conexão com o servidor" (versões 1.6 e 1.7) com o aparelho na rede | O certificado do servidor mudou e o aparelho ainda não confia no novo; o app escondia o aviso do navegador | Abra o painel numa **janela anônima/privada**, aceite o aviso, vá em `/certificado` e instale o certificado. Depois feche a janela anônima e abra o painel normalmente. Ou apague os dados do site (Chrome: cadeado → Configurações do site → Limpar dados; iPhone: Ajustes → Safari → Avançado → Dados de Sites) |
+| Aviso "conexão não particular" | Certificado do servidor não instalado neste aparelho | Instale pela página `/certificado` |
+
 ## Como desfazer
 
 Para remover o painel do FortiGate, primeiro apague os aparelhos liberados pela aba **Aparelhos liberados** do painel. Depois:

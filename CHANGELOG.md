@@ -3,6 +3,9 @@
 Cada versão nova aumenta o número depois do ponto (1.0, 1.1, 1.2...). O botão **Atualizações** do painel
 mostra as versões disponíveis e o que cada uma traz, a partir deste arquivo.
 
+## 1.8 — 2026-10-31
+- App (PWA): a tela "Sem conexão" só aparece quando o aparelho está realmente sem rede. Antes ela aparecia também quando o servidor recusava a conexão por causa do certificado (por exemplo, logo depois da troca para o certificado próprio do servidor), escondendo o aviso do navegador e impedindo até de abrir a página `/certificado`.
+
 ## 1.7 — 2026-10-31
 - Novo comando `acessowifi permissoes` (no servidor, como root): dá ao token do painel as permissões que as versões novas precisam, como criar a rede própria dos SSIDs. Ele pede o admin do FortiGate, mostra o que vai mudar e aplica, sem refazer toda a configuração e sem trocar o token.
 - A mensagem de "acesso recusado (403)" agora diferencia falta de permissão de uma função nova (o resto do painel funciona) de problema no token ou no trusted host (nada funciona).

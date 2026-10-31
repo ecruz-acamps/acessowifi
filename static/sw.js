@@ -26,8 +26,10 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;   // dados: sempre da rede, nunca do cache
 
   if (req.mode === "navigate") {
-    // Páginas: sempre da rede; sem servidor, mostra a página offline
-    event.respondWith(fetch(req).catch(() => caches.match("/static/offline.html")));
+    // Páginas: o navegador busca sozinho, para mostrar os avisos dele (ex.: certificado HTTPS não
+    // confiável depois de uma troca de certificado). A página offline só aparece quando o aparelho
+    // está de fato sem rede.
+    if (!self.navigator.onLine) event.respondWith(caches.match("/static/offline.html"));
     return;
   }
   if (url.pathname.startsWith("/static/")) {
