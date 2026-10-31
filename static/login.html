@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acesso Wi-Fi — Entrar</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-page">
+  <form method="post" action="/login" class="login-card">
+    <h1>Acesso Wi-Fi</h1>
+    <p id="login-error" class="error" hidden>Usuário ou senha inválidos.</p>
+    <label>Usuário <input name="user" autocomplete="username" required autofocus></label>
+    <label>Senha <input name="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit">Entrar</button>
+  </form>
+  <script>
+    if (new URLSearchParams(location.search).has("erro"))
+      document.getElementById("login-error").hidden = false;
+  </script>
+</body>
+</html>

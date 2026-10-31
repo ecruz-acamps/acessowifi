@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acesso Wi-Fi</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Acesso Wi-Fi</h1>
+    <div class="header-right">
+      <span id="updated" class="muted"></span>
+      <button id="refresh" type="button">Atualizar</button>
+      <form method="post" action="/logout"><button type="submit" class="ghost">Sair</button></form>
+    </div>
+  </header>
+
+  <main>
+    <section class="stats">
+      <div class="stat"><span id="stat-online">–</span><small>conectados</small></div>
+      <div class="stat"><span id="stat-users">–</span><small>usuários cadastrados</small></div>
+      <div class="stat"><span id="stat-unknown">–</span><small>sem usuário vinculado</small></div>
+      <div class="stat"><span id="stat-aps">–</span><small>APs online</small></div>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="clients" aria-selected="true">Conectados agora</button>
+      <button role="tab" data-tab="users">Usuários cadastrados</button>
+      <button role="tab" data-tab="aps">Access Points</button>
+    </nav>
+
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Buscar por nome, IP, MAC, SSID…" autocomplete="off">
+    </div>
+
+    <div id="error" class="error" hidden></div>
+
+    <div class="table-wrap" data-panel="clients">
+      <table>
+        <thead><tr>
+          <th>Usuário</th><th>Dispositivo</th><th>IP / MAC</th><th>SSID</th><th>AP</th>
+          <th>Sinal</th><th>Taxa</th><th>Conectado há</th>
+        </tr></thead>
+        <tbody id="clients-body"></tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap" data-panel="users" hidden>
+      <table>
+        <thead><tr>
+          <th>Usuário</th><th>Tipo</th><th>Grupos</th><th>Contato</th><th>Validade</th><th>Status</th>
+        </tr></thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap" data-panel="aps" hidden>
+      <table>
+        <thead><tr><th>Nome</th><th>Serial</th><th>IP</th><th>Versão</th><th>Clientes</th><th>Status</th></tr></thead>
+        <tbody id="aps-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
