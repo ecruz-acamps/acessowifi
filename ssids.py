@@ -11,6 +11,7 @@ O painel só altera SSIDs com o prefixo "aw-" (os que ele mesmo criou).
 """
 import os
 import re
+import shlex
 from datetime import datetime
 
 from fortigate import FortiGateError
@@ -88,8 +89,32 @@ class SSIDError(Exception):
     pass
 
 
-def _names(items, key="name"):
-    return [i.get(key) for i in items or [] if i.get(key)]
+def _names(value, key="name"):
+    """Nomes de um campo de referência em qualquer formato do FortiOS:
+    texto ("always" ou '"a" "b"'), objeto ({"name": ...}) ou lista de objetos/textos."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        try:
+            return [v for v in shlex.split(value) if v]
+        except ValueError:
+            return value.replace('"', "").split()
+    if isinstance(value, dict):
+        return [value[key]] if value.get(key) else ([value["name"]] if value.get("name") else [])
+    if isinstance(value, list):
+        return [n for item in value for n in _names(item, key)]
+    return [str(value)]
+
+
+def _first(value, key="name"):
+    names = _names(value, key)
+    return names[0] if names else ""
+
+
+def _schedule_value(fgt, name):
+    """Grava o agendamento no mesmo formato que o SSID principal usa (texto ou lista)."""
+    main = fgt.get_one(VAP, main_vap_name()) or {}
+    return [{"name": name}] if isinstance(main.get("schedule"), list) else name
 
 
 def main_vap_name():
@@ -133,7 +158,7 @@ def _vap_lists(fgt):
 
 def _effective(wtp, profiles, tunnel, bridge):
     """SSIDs que cada rádio do AP transmite hoje: {rádio: [nomes]}."""
-    profile = profiles.get(wtp.get("wtp-profile")) or {}
+    profile = profiles.get(_first(wtp.get("wtp-profile"))) or {}
     result = {}
     for radio in RADIOS:
         prof = profile.get(radio) or {}
@@ -235,7 +260,7 @@ def _schedule_for(fgt, vap, data):
 
 
 def _describe_schedule(vap, schedules, now):
-    sched = (vap.get("schedule") or ALWAYS).strip().strip('"')
+    sched = _first(vap.get("schedule")) or ALWAYS
     if sched == ALWAYS:
         return {"mode": "on", "status": "no ar", "start": None, "end": None}
     if sched == OFF_SCHEDULE:
@@ -264,7 +289,7 @@ def list_ssids(fgt):
     for v in fgt.get(VAP):
         ssids.append({
             "name": v["name"],
-            "ssid": v.get("ssid") or v["name"],
+            "ssid": str(v.get("ssid") or v["name"]),
             "main": v["name"] == main,
             "managed": v["name"].startswith(PREFIX),
             "access": access_of(v),
@@ -315,7 +340,8 @@ def create_ssid(fgt, data):
             undo.append(lambda: fgt.remove(ONETIME, schedule))
         body = {k: main[k] for k in NETWORK_FIELDS if k in main}
         body.update(_security_body(main, data))
-        body.update({"name": name, "ssid": text, "broadcast-ssid": "enable", "schedule": schedule})
+        body.update({"name": name, "ssid": text, "broadcast-ssid": "enable",
+                     "schedule": _schedule_value(fgt, schedule)})
         fgt.create(VAP, body)
         undo.append(lambda: fgt.remove(VAP, name))
         if switch:
@@ -351,11 +377,12 @@ def update_ssid(fgt, name, data):
     if "security" in data:
         body.update(_security_body(fgt.get_one(VAP, main_vap_name()) or {}, data, current=vap))
     if "mode" in data:
-        old = (vap.get("schedule") or "").strip('"')
-        body["schedule"] = _schedule_for(fgt, name, data)
+        old = _first(vap.get("schedule"))
+        new_schedule = _schedule_for(fgt, name, data)
+        body["schedule"] = _schedule_value(fgt, new_schedule)
     if body:
         fgt.update(VAP, name, body)
-        if "schedule" in body and old.startswith(PREFIX) and old not in (OFF_SCHEDULE, body["schedule"]):
+        if "schedule" in body and old.startswith(PREFIX) and old not in (OFF_SCHEDULE, new_schedule):
             fgt.remove(ONETIME, old)
     if "aps" in data:
         set_aps(fgt, name, _valid_aps(fgt, data["aps"]))
@@ -369,6 +396,6 @@ def delete_ssid(fgt, name):
         members = [m for m in _names(sw.get("member"), "interface-name") if m != name]
         fgt.update(SWITCH, sw["name"], {"member": [{"interface-name": m} for m in members]})
     fgt.remove(VAP, name)
-    sched = (vap.get("schedule") or "").strip('"')
+    sched = _first(vap.get("schedule"))
     if sched.startswith(PREFIX) and sched != OFF_SCHEDULE:
         fgt.remove(ONETIME, sched)

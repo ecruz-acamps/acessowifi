@@ -111,6 +111,19 @@ def fortigate_error(e):
     return jsonify(error=str(e)), 502
 
 
+@app.errorhandler(Exception)
+def unexpected_error(e):
+    """Erro inesperado: mostra o motivo na tela (não só "Erro 500") e grava o detalhe no log."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    app.logger.exception("Erro inesperado em %s", request.path)
+    if not request.path.startswith("/api/"):
+        return "Erro interno do painel. Detalhes: acessowifi log", 500
+    return jsonify(error=f"Erro interno do painel ({type(e).__name__}: {e}). "
+                         f"Versão {APP_VERSION}. Detalhes no log do servidor: acessowifi log"), 500
+
+
 @app.errorhandler(ssids.SSIDError)
 def ssid_error(e):
     return jsonify(error=str(e)), 400
