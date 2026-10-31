@@ -8,6 +8,7 @@ Painel interno para o Wi-Fi do acampamento (FortiGate 40F + FortiAP, captive por
 - Ver **quem está conectado agora**: conta cadastrada, Google Workspace (SAML), liberado por MAC ou ainda sem login.
 - **SSIDs extras**: criar redes na mesma rede do SSID principal, com acesso igual ao dele (captive portal), WPA2 com senha ou sem senha, em FortiAPs escolhidos, num período (início e fim) ou ligadas e desligadas na hora. O FortiGate cuida do horário sozinho.
 - Ver os FortiAPs e quantos clientes cada um tem.
+- **Instalar como app** (PWA) no celular ou no computador.
 
 Roda no seu servidor, sem nada na nuvem.
 
@@ -65,6 +66,16 @@ Se algo não funcionar, veja **[Problemas comuns](docs/FORTIGATE.md#problemas-co
 **Se aparecer "502 Bad Gateway":** o nginx está funcionando, mas o painel por trás dele não respondeu. Normalmente a porta interna (8080) está ocupada por outro programa ou o serviço caiu. O instalador agora escolhe uma porta livre e só termina depois de confirmar que o painel responde; rode-o de novo (responda **não** para refazer a configuração). Para ver o motivo à mão: `acessowifi status` e `journalctl -u acessowifi -n 50`.
 
 Não publique o painel na internet. Para usar um certificado próprio no lugar do autoassinado, substitua `/etc/ssl/acessowifi/cert.pem` e `key.pem` e rode `systemctl reload nginx`.
+
+## Usar como app (PWA) e certificado HTTPS
+
+O painel pode ser instalado como app: no Android e no Chrome do computador, pelo botão **Instalar app** no topo; no iPhone, pelo Safari → **Compartilhar** → **Adicionar à Tela de Início**.
+
+Os navegadores só instalam apps de sites com HTTPS **confiável**. Como o servidor fica fora da internet, ele tem uma **autoridade certificadora própria** (`deploy/acessowifi-cert.sh`), criada pelo instalador ou pela atualização. Em cada aparelho que vai usar o painel, abra **`https://IP_DO_SERVIDOR/certificado`**, baixe o certificado e siga o passo a passo da página. Isso é feito uma vez por aparelho e também tira o aviso de "conexão não particular".
+
+- O certificado só vale para o nome e os IPs deste servidor (*name constraints*): mesmo que alguém roube a chave dele em `/etc/ssl/acessowifi/ca.key`, não consegue se passar por outros sites.
+- Se o IP ou o nome do servidor mudar, o certificado é refeito, e os aparelhos precisam reinstalá-lo.
+- O app não guarda dados no aparelho: usuários, senhas e conectados vêm sempre do servidor. Sem conexão, ele mostra uma tela avisando.
 
 ## Atualizações pelo botão
 

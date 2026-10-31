@@ -190,15 +190,8 @@ if [ "$USE_NGINX" = 1 ]; then
     info "A porta 80 é usada por '$OWNER80': site padrão do nginx desativado (o arquivo continua em sites-available)."
   fi
 
-  mkdir -p /etc/ssl/acessowifi
-  if [ ! -f /etc/ssl/acessowifi/cert.pem ]; then
-    SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$(hostname)" \
-      -addext "subjectAltName=DNS:$(hostname)${SERVER_IP:+,IP:$SERVER_IP}" \
-      -keyout /etc/ssl/acessowifi/key.pem -out /etc/ssl/acessowifi/cert.pem 2>/dev/null
-    chmod 600 /etc/ssl/acessowifi/key.pem
-    info "Certificado autoassinado criado (válido por 10 anos)."
-  fi
+  # Certificado emitido pela CA própria do servidor (instalável nos aparelhos: página /certificado)
+  bash "$APP_DIR/deploy/acessowifi-cert.sh" | sed 's/^/   /'
   if [ -d /etc/nginx/sites-available ]; then
     NGINX_CONF=/etc/nginx/sites-available/acessowifi
     ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/acessowifi
@@ -308,7 +301,10 @@ fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 say "Pronto! Versão $(cat "$APP_DIR/VERSION" 2>/dev/null || echo '?') do painel."
 if [ "$USE_NGINX" = 1 ]; then
-  info "Painel:  https://${IP:-IP_DO_SERVIDOR}$([ "$HTTPS_PORT" = 443 ] || echo ":$HTTPS_PORT")/   (o navegador vai avisar do certificado autoassinado)"
+  URL="https://${IP:-IP_DO_SERVIDOR}$([ "$HTTPS_PORT" = 443 ] || echo ":$HTTPS_PORT")"
+  info "Painel:  $URL/"
+  info "Para o navegador confiar no HTTPS e para instalar o painel como app, instale o certificado"
+  info "do servidor em cada aparelho: $URL/certificado"
 else
   info "Painel:  http://${IP:-IP_DO_SERVIDOR}:$PANEL_PORT/"
 fi

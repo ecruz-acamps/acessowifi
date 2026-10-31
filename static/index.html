@@ -2,7 +2,15 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#d6232a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Acesso Wi-Fi">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
   <title>Acesso Wi-Fi</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -11,6 +19,7 @@
     <h1>Acesso Wi-Fi <span id="app-version" class="version"></span></h1>
     <div class="header-right">
       <span id="updated" class="muted"></span>
+      <button id="install-app" type="button" class="ghost" hidden>Instalar app</button>
       <button id="updates-btn" type="button" class="ghost with-count" title="Atualizações do painel">
         Atualizações<span id="updates-count" class="count" hidden></span>
       </button>
@@ -289,5 +298,6 @@
   </dialog>
 
   <script src="/static/app.js"></script>
+  <script src="/static/pwa.js"></script>
 </body>
 </html>

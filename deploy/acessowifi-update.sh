@@ -142,6 +142,11 @@ deploy() {
     systemctl enable -q --now acessowifi-update.timer acessowifi-update.path acessowifi-update-install.path 2>/dev/null || true
   fi
 
+  # Certificado HTTPS (CA própria do servidor), se o painel usa nginx
+  if [ -f /etc/nginx/sites-available/acessowifi ] || [ -f /etc/nginx/conf.d/acessowifi.conf ]; then
+    while read -r line; do log "$line"; done < <(bash "$APP_DIR/deploy/acessowifi-cert.sh" 2>&1)
+  fi
+
   # Antes de reiniciar: o painel carrega? (erro de sintaxe, import quebrado, variável faltando)
   if ! (cd "$APP_DIR" && runuser -u "$SVC_USER" -- "$APP_DIR/.venv/bin/python" -c "import app" >"$STATE/selftest.log" 2>&1); then
     log "A versão $(short "$rev") não carrega:"

@@ -128,3 +128,23 @@ dialog input { min-width: 0; }
 .inline-form { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .inline-form select { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--surface); color: var(--text); min-width: 0; }
+
+/* --- Página do certificado / PWA --- */
+a.button { display: inline-block; text-decoration: none; border-radius: 6px; padding: 7px 14px;
+  background: var(--accent); color: #fff; font-weight: 500; }
+a.button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.doc { max-width: 760px; }
+.doc h2 { font-size: 20px; margin: 18px 0 8px; }
+.doc h3 { font-size: 16px; margin: 18px 0 6px; }
+.doc ol, .doc ul { padding-left: 22px; display: grid; gap: 6px; }
+.doc code { background: var(--neutral-bg); padding: 1px 5px; border-radius: 4px; }
+.cert-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin: 14px 0; }
+.cert-box .cred { margin: 14px 0 6px; }
+.cert-box .cred dd { font-size: 14px; }
+.fp { word-break: break-all; font-size: 12px !important; font-weight: 500 !important; }
+.pwa-hint { background: var(--info-bg); color: var(--info); padding: 8px 16px; font-size: 13px; }
+.pwa-hint a { color: inherit; font-weight: 600; }
+@media (max-width: 520px) {
+  .cert-box .cred { grid-template-columns: 1fr; gap: 2px; }
+  .cert-box .cred dd { margin-bottom: 8px; }
+}

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#d6232a">
+  <title>Acesso Wi-Fi — instalar o certificado</title>
+  <link rel="icon" href="/static/icons/favicon-32.png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Acesso Wi-Fi</h1>
+    <div class="header-right"><a class="button ghost" href="/">Abrir o painel</a></div>
+  </header>
+  <main class="doc">
+    <h2>Instalar o certificado do servidor</h2>
+    <p>O painel roda no servidor do acampamento, fora da internet, com um certificado HTTPS próprio. Para o navegador
+      confiar nele (e para poder <strong>instalar o painel como app</strong>), instale este certificado <strong>uma vez</strong>
+      em cada celular ou computador que vai usar o painel.</p>
+
+    <p class="warning" id="cert-missing" hidden>Este servidor ainda não tem o certificado próprio. No servidor, rode
+      <code>./deploy/install.sh</code> (ou instale a versão nova pelo botão Atualizações).</p>
+
+    <div id="cert-box" class="cert-box">
+      <a class="button" id="cert-download" href="/certificado/acessowifi-ca.crt" download="acessowifi-ca.crt">Baixar o certificado</a>
+      <dl class="cred">
+        <dt>Nome</dt><dd id="cert-name">–</dd>
+        <dt>Válido até</dt><dd id="cert-until">–</dd>
+        <dt>Vale só para</dt><dd id="cert-scope">–</dd>
+        <dt>Impressão digital (SHA-256)</dt><dd id="cert-fp" class="mono fp">–</dd>
+      </dl>
+      <p class="muted small-note">Por segurança, este certificado só vale para o endereço deste servidor: ele não pode ser
+        usado para se passar por outros sites (bancos, Google etc.). Na tela de instalação, confira se a impressão digital
+        é a mesma mostrada aqui.</p>
+    </div>
+
+    <h3>Android</h3>
+    <ol>
+      <li>Toque em <strong>Baixar o certificado</strong>.</li>
+      <li>Abra <strong>Configurações → Segurança → Mais configurações de segurança → Criptografia e credenciais →
+        Instalar um certificado → Certificado de CA</strong> (o caminho muda um pouco de marca para marca; procure por
+        "certificado" nas Configurações).</li>
+      <li>Escolha o arquivo <code>acessowifi-ca.crt</code> em Downloads e confirme.</li>
+    </ol>
+
+    <h3>iPhone / iPad</h3>
+    <ol>
+      <li>Abra esta página no <strong>Safari</strong> e toque em <strong>Baixar o certificado</strong> → <strong>Permitir</strong>.</li>
+      <li>Abra <strong>Ajustes → Perfil Baixado</strong> (ou <strong>Ajustes → Geral → VPN e Gerenciamento de Dispositivo</strong>)
+        e toque em <strong>Instalar</strong>.</li>
+      <li>Depois, em <strong>Ajustes → Geral → Sobre → Ajustes de Confiança de Certificado</strong>, ative a chave do
+        certificado "Acesso Wi-Fi". <em>Sem este passo o iPhone não confia nele.</em></li>
+    </ol>
+
+    <h3>Windows</h3>
+    <ol>
+      <li>Baixe e dê dois cliques no arquivo → <strong>Instalar Certificado</strong>.</li>
+      <li>Escolha <strong>Máquina Local</strong> → <strong>Colocar todos os certificados no repositório a seguir</strong> →
+        <strong>Autoridades de Certificação Raiz Confiáveis</strong> → Concluir.</li>
+      <li>Feche e abra o navegador de novo.</li>
+    </ol>
+
+    <h3>Mac</h3>
+    <ol>
+      <li>Baixe e dê dois cliques no arquivo: ele abre no <strong>Acesso às Chaves</strong> (chaveiro <em>Sistema</em>).</li>
+      <li>Dê dois cliques no certificado "Acesso Wi-Fi" → <strong>Confiar</strong> → <strong>Ao usar este certificado:
+        Sempre Confiar</strong>.</li>
+    </ol>
+
+    <h2>Instalar o painel como app</h2>
+    <p>Com o certificado instalado, abra o painel pelo endereço do servidor:</p>
+    <ul>
+      <li><strong>Android / Chrome no computador:</strong> botão <strong>Instalar app</strong> no topo do painel (ou menu ⋮ →
+        <strong>Instalar app</strong>).</li>
+      <li><strong>iPhone / iPad:</strong> no Safari, botão <strong>Compartilhar</strong> → <strong>Adicionar à Tela de Início</strong>.</li>
+    </ul>
+    <p class="muted small-note">O app só funciona quando o aparelho alcança o servidor (rede do acampamento ou VPN). Ele não
+      guarda dados no aparelho: usuários, senhas e conectados vêm sempre do servidor.</p>
+  </main>
+  <script src="/static/certificado.js"></script>
+</body>
+</html>

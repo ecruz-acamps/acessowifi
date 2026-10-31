@@ -105,6 +105,56 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+# --- PWA (instalar o painel como app) e certificado do servidor ---
+CA_FILE = Path(os.getenv("ACESSOWIFI_CA", "/etc/ssl/acessowifi/ca.pem"))
+
+
+@app.get("/sw.js")
+def service_worker():
+    # Na raiz, para valer para o painel todo; a versão no conteúdo faz o navegador trocar a casca antiga
+    body = (Path(app.static_folder) / "sw.js").read_text().replace("__VERSION__", APP_VERSION)
+    return app.response_class(body, mimetype="application/javascript",
+                              headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    return send_from_directory(app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json")
+
+
+@app.get("/certificado")
+def certificate_page():
+    return send_from_directory(app.static_folder, "certificado.html")
+
+
+@app.get("/certificado/acessowifi-ca.crt")
+def certificate_download():
+    if not CA_FILE.is_file():
+        return jsonify(error="Este servidor ainda não tem o certificado próprio."), 404
+    return app.response_class(CA_FILE.read_bytes(), mimetype="application/x-x509-ca-cert",
+                              headers={"Content-Disposition": "attachment; filename=acessowifi-ca.crt"})
+
+
+@app.get("/certificado/info")
+def certificate_info():
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes
+        cert = x509.load_pem_x509_certificate(CA_FILE.read_bytes())
+    except (OSError, ValueError, ImportError):
+        return jsonify(available=False)
+    name = cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
+    scope = []
+    try:
+        nc = cert.extensions.get_extension_for_class(x509.NameConstraints).value
+        scope = [str(getattr(g, "value", g)) for g in nc.permitted_subtrees or []]
+    except x509.ExtensionNotFound:
+        pass
+    return jsonify(available=True, name=name[0].value if name else "", scope=scope,
+                   not_after=cert.not_valid_after_utc.isoformat(),
+                   fingerprint=cert.fingerprint(hashes.SHA256()).hex(":").upper())
+
+
 @app.errorhandler(FortiGateError)
 def fortigate_error(e):
     app.logger.error("FortiGate: %s", e)
