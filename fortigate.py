@@ -45,9 +45,9 @@ class FortiGate:
 
         if r.status_code in (401, 403):
             raise FortiGateError(
-                f"FortiGate recusou o acesso ({r.status_code}) em {path}. Se for uma função nova do "
-                "painel, o token ainda não tem essa permissão: rode ./deploy/install.sh e responda "
-                "sim para refazer a configuração. Senão, verifique o token e o trusted host.",
+                f"FortiGate recusou o acesso ({r.status_code}) em {path}. Se o resto do painel funciona, "
+                "o token só não tem permissão para esta função nova: no servidor, como root, rode "
+                "\"acessowifi permissoes\". Se nada funciona, verifique o token e o trusted host.",
                 status=r.status_code,
             )
         try:

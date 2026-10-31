@@ -264,7 +264,7 @@ Ele testa a conexão, as permissões e os grupos. Também cria e apaga um usuár
 | Aparelho "Permitir sempre" continua caindo no portal | Lista de exceção fora do SSID; MAC aleatório mudou | Passo 3; veja o aviso de MAC aleatório no painel |
 | Aparelho liberado conecta mas não navega | Política exige grupo de usuário | Passo 4 |
 | Validade adiantada ou atrasada algumas horas | Fusos diferentes | Passo 8 |
-| Aba SSIDs: "o token ainda não tem essa permissão" / 403 | Instalação feita antes da aba SSIDs | `./deploy/install.sh`, responda **sim** para refazer a configuração (o perfil ganha as permissões novas) |
+| 403 numa função nova (ex.: `cmdb/firewall/policy` na aba SSIDs), com o resto do painel funcionando | O perfil do token é de uma versão anterior e não tem a permissão nova. **Não é o trusted host**: se fosse, nada funcionaria | No servidor, como root: `acessowifi permissoes` (pede um admin, mostra a mudança no perfil e aplica; o token continua o mesmo) |
 | Aba SSIDs: "Não achei a política de firewall que dá internet ao SSID" | O SSID principal em túnel não tem política com origem nele (ex.: a política usa um zone) | Veja [SSIDs extras](#ssids-extras-aba-ssids) |
 | Modo automático: `Permission denied` / `Command fail` | Admin informado não é super_admin | Use um admin com perfil super_admin |
 | Modo automático: "usa VDOMs" | VDOMs habilitados | Use o modo manual, com os comandos dentro de `config vdom` / `config global` |

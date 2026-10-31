@@ -57,6 +57,7 @@ O painel **não usa usuário e senha** de admin do FortiGate. Ele usa a **API RE
 | Atualizar o painel | `git pull && ./deploy/install.sh` (mantém a configuração) |
 | Mudar FortiGate, token, senha ou acesso | `./deploy/install.sh` e responda **sim** para refazer a configuração |
 | Testar a conexão com o FortiGate | `acessowifi testar --escrita` |
+| Dar ao token as permissões que uma versão nova precisa (erro 403 numa função nova) | `acessowifi permissoes` |
 | Ver o log (inclui quem cadastrou, alterou ou removeu o quê) | `acessowifi log` |
 
 Se algo não funcionar, veja **[Problemas comuns](docs/FORTIGATE.md#problemas-comuns)**.

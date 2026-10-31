@@ -30,7 +30,7 @@ Versões:
 Regras:
 - Tudo que entra na `master` aparece no botão "Atualizações" do servidor e é instalado com um clique. Antes de juntar, teste com `DEMO_MODE=1` (painel) e `deploy/configure.py --demo` (instalador).
 - Uma versão nova precisa funcionar com o `.env` que já existe no servidor: variável nova sempre com valor padrão (`os.getenv("X", padrão)`), nunca `os.environ["X"]`. A instalação pelo botão não faz perguntas.
-- Permissão nova no FortiGate (ex.: `wifi read-write`, `fwgrp-permission schedule`) não chega pelo botão de atualização: adicione-a ao perfil em `configure.py`, `.conf` e docs, e faça o painel detectar a falta (erro 403 da API) e mostrar "rode ./deploy/install.sh e refaça a configuração".
+- Permissão nova no FortiGate (ex.: `wifi read-write`, `fwgrp-permission schedule`) não chega pelo botão de atualização: adicione-a ao perfil em `configure.py`, `.conf` e docs, suba `PERMISSIONS_VERSION` em `configure.py` (o instalador avisa quem tem `FGT_PERMISSIONS` antigo) e faça o painel detectar a falta (erro 403 da API). O usuário resolve com `acessowifi permissoes` (só atualiza o perfil do token, via `configure.py --permissoes`).
 - Dados que o painel precisa guardar ficam no FortiGate ou em `/var/lib/acessowifi`, nunca dentro de `/opt/acessowifi`, que é sobrescrito a cada atualização e é somente leitura para o serviço.
 - Hospedado on-premise; não adicionar dependências de nuvem/CDN.
 - Todo usuário cadastrado tem validade obrigatória. O SSID principal não tem senha compartilhada; só os SSIDs extras podem ser WPA2 com senha ou abertos, por escolha do administrador na aba SSIDs.

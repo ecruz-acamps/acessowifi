@@ -426,13 +426,7 @@ def _auto_configure(cli, host, names):
             break
 
     # 7. Perfil e admin da API
-    plan.append((f"Perfil '{names['profile']}': usuários, endereços, agendamentos, Wi-Fi, interfaces/DHCP e "
-                 "políticas (leitura/escrita; o painel só altera o que ele mesmo cria)", [
-        "config system accprofile", f"edit {q(names['profile'])}", "set authgrp read-write", "set wifi read-write",
-        "set fwgrp custom", "config fwgrp-permission", "set address read-write", "set policy read-write",
-        "set schedule read-write", "end",
-        "set netgrp custom", "config netgrp-permission", "set cfg read-write", "end",
-        "next", "end"]))
+    plan.append(profile_step(names))
     plan.append((f"Admin de API '{names['api_user']}', aceito só a partir de {server_ip}, e geração do token", [
         "config system api-user", f"edit {q(names['api_user'])}", 'set comments "Painel Acesso Wi-Fi"',
         f"set accprofile {q(names['profile'])}",
@@ -485,6 +479,87 @@ def _auto_configure(cli, host, names):
     ok("Token da API gerado.")
     return {"host": host if https_port == 443 else f"{host}:{https_port}", "token": key.group(1),
             "main_ssid": vap_name}
+
+
+# Geração atual das permissões do token (gravada em FGT_PERMISSIONS no .env)
+PERMISSIONS_VERSION = "2"
+
+
+def profile_step(names):
+    """Perfil de permissões do token. Mantenha igual em deploy/fortigate-setup.conf e docs/FORTIGATE.md."""
+    return (f"Perfil '{names['profile']}': usuários, endereços, agendamentos, Wi-Fi, interfaces/DHCP e "
+            "políticas (leitura/escrita; o painel só altera o que ele mesmo cria)", [
+        "config system accprofile", f"edit {q(names['profile'])}", "set authgrp read-write", "set wifi read-write",
+        "set fwgrp custom", "config fwgrp-permission", "set address read-write", "set policy read-write",
+        "set schedule read-write", "end",
+        "set netgrp custom", "config netgrp-permission", "set cfg read-write", "end",
+        "next", "end"])
+
+
+def update_permissions(env_path, demo=False):
+    """Só atualiza o perfil do token (sem refazer a configuração e sem trocar o token)."""
+    from dotenv import dotenv_values
+    env = dotenv_values(env_path)
+    fgt_host, token = env.get("FGT_HOST", ""), env.get("FGT_TOKEN", "")
+    if not fgt_host or not token:
+        fail(f"Não achei FGT_HOST/FGT_TOKEN em {env_path}. Rode ./deploy/install.sh.")
+        return False
+    names = dict(DEFAULTS)
+    title("Atualizar as permissões do token do painel")
+    info(f"FortiGate: {fgt_host}. O token do painel continua o mesmo; só o perfil '{names['profile']}' muda.")
+    info("Use um admin com perfil super_admin. O usuário e a senha não são salvos.")
+    host = fgt_host.split(":")[0]
+    if demo:
+        cli = DemoCLI()
+    else:
+        ssh_port = int(ask("Porta SSH do FortiGate", "22", lambda a: None if a.isdigit() else "Número inválido."))
+        user = ask("Usuário admin", "admin")
+        password = ask_secret("Senha do admin (não aparece enquanto digita)")
+        try:
+            cli = FortiCLI(host, ssh_port, user, password)
+        except CLIError as e:
+            fail(str(e))
+            return False
+        finally:
+            del password
+    try:
+        desc, lines = profile_step(names)
+        title("Alteração que será feita no FortiGate")
+        info(desc)
+        for line in lines:
+            print(f"     {line}")
+        if not yes_no("Aplicar?", True):
+            warn("Nada foi alterado.")
+            return False
+        errors = cli.script(lines)
+    finally:
+        cli.close()
+    if errors:
+        fail("O FortiGate recusou a alteração:")
+        for line, err in errors:
+            info(f"   comando: {line}")
+            info(f"   resposta: {err}")
+        return False
+    ok("Permissões atualizadas.")
+
+    if not demo:
+        fgt = FortiGate(fgt_host, token, verify=False, timeout=10)
+        for attempt in range(5):
+            try:
+                fgt.get("cmdb/firewall/policy")
+                ok("O token já consegue ler as políticas de firewall.")
+                break
+            except FortiGateError as e:
+                if attempt == 4:
+                    warn(f"O token ainda não conseguiu ler as políticas: {e}")
+                time.sleep(2)
+
+    # Marca a geração das permissões no .env (o instalador deixa de avisar)
+    text = Path(env_path).read_text()
+    line = f"FGT_PERMISSIONS='{PERMISSIONS_VERSION}'"
+    text = re.sub(r"^FGT_PERMISSIONS=.*$", line, text, flags=re.M) if "FGT_PERMISSIONS=" in text else text + line + "\n"
+    Path(env_path).write_text(text)
+    return True
 
 
 def _same_subnet(ip, net_ip, mask):
@@ -543,7 +618,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", required=True, help="caminho do .env a gerar")
     parser.add_argument("--demo", action="store_true", help="simula o FortiGate (para testes)")
+    parser.add_argument("--permissoes", action="store_true",
+                        help="só atualiza as permissões do token no FortiGate (usa o .env existente)")
     args = parser.parse_args()
+    if args.permissoes:
+        sys.exit(0 if update_permissions(args.env, demo=args.demo) else 1)
     names = dict(DEFAULTS)
 
     print("\nEste assistente pergunta tudo o que o painel precisa. Enter aceita o valor entre [colchetes].")
@@ -618,7 +697,7 @@ def main():
         "FGT_GUEST_GROUPS": names["guest_group"], "FGT_MAC_GROUP": names["mac_group"],
         "FGT_MAIN_SSID": result.get("main_ssid", ""),
         # Geração das permissões do token (o instalador pede para refazer quando a versão pede mais)
-        "FGT_PERMISSIONS": "2" if mode == 0 else "manual",
+        "FGT_PERMISSIONS": PERMISSIONS_VERSION if mode == 0 else "manual",
         "MAX_VALIDITY_DAYS": "365", "TZ": tz,
         "APP_USER": panel_user, "APP_PASSWORD_HASH": generate_password_hash(pw),
         "SECRET_KEY": secrets.token_hex(32), "COOKIE_SECURE": cookie_secure, "BIND": bind,

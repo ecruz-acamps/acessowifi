@@ -93,6 +93,11 @@ for line in s.get("log", [])[-10:]:
     print(f"  | {line}")
 PY
     ;;
+  permissoes)
+    # Só atualiza as permissões do token no FortiGate (pede um admin; o token continua o mesmo)
+    cd "$APP_DIR" && "$APP_DIR/.venv/bin/python" deploy/configure.py --permissoes --env "$APP_DIR/.env"
+    chown root:"$SVC_USER" "$APP_DIR/.env"; chmod 640 "$APP_DIR/.env"
+    ;;
   log)       journalctl -u acessowifi -f ;;
   reiniciar) systemctl restart acessowifi && echo "Painel reiniciado." ;;
   *)
@@ -103,6 +108,7 @@ PY
     echo "  reiniciar   reinicia o painel"
     echo "  diagnostico mostra por que o painel não sobe"
     echo "  senha       troca o usuário e a senha de login do painel"
+    echo "  permissoes  dá ao token do painel as permissões que as versões novas precisam"
     echo "  verificar   consulta o GitHub e conta as atualizações (não instala)"
     echo "  atualizar   instala a versão nova do GitHub (--forcar: reinstala a atual)"
     echo "  atualizacoes  versão instalada e atualizações disponíveis"
