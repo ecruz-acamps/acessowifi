@@ -15,6 +15,7 @@ flask_cli() {
 case "${1:-ajuda}" in
   testar)    shift; flask_cli check-fortigate "$@" ;;
   limpar)    flask_cli cleanup-devices ;;
+  rede)      flask_cli network-debug ;;
   status)
     for unit in acessowifi nginx acessowifi-cleanup.timer; do
       printf '%-26s %s\n' "$unit" "$(systemctl is-active "$unit" 2>/dev/null || true)"
@@ -113,5 +114,6 @@ PY
     echo "  atualizar   instala a versão nova do GitHub (--forcar: reinstala a atual)"
     echo "  atualizacoes  versão instalada e atualizações disponíveis"
     echo "  limpar      remove agora as liberações de MAC vencidas"
+    echo "  rede        mostra como o FortiGate responde as fontes da aba Rede (diagnóstico)"
     ;;
 esac

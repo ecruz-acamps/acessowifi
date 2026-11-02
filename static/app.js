@@ -272,6 +272,10 @@ function renderNetwork(q) {
   const warn = [state.networkError, ...(state.network.warnings || [])].filter(Boolean).join(" ");
   $("#network-warnings").textContent = warn;
   $("#network-warnings").hidden = !warn;
+  const counts = state.network.counts || {};
+  $("#network-counts").textContent = Object.keys(counts).length
+    ? "Encontrados por fonte: " + Object.entries(counts).map(([k, v]) => `${k} ${v ?? "erro"}`).join(" · ")
+    : "";
   const onlyOnline = $("#network-online").checked;
   const rows = state.network.devices.filter((d) => (!onlyOnline || d.online || d.blocked) && matches(d, q));
   if (!rows.length) return emptyRow(body, 6, onlyOnline ? "Nenhum aparelho online." : "Nenhum aparelho.");

@@ -3,6 +3,11 @@
 Cada versão nova aumenta o número depois do ponto (1.0, 1.1, 1.2...). O botão **Atualizações** do painel
 mostra as versões disponíveis e o que cada uma traz, a partir deste arquivo.
 
+## 1.11 — 2026-11-02
+- Aba Rede: o painel entende mais formatos de resposta do FortiGate para a tabela ARP, o DHCP e o inventário (por exemplo, listas separadas por IPv4 e IPv6). Antes, nesses casos, a aba ficava vazia sem avisar.
+- Aba Rede: mostra quantos aparelhos vieram de cada fonte (inventário, DHCP, ARP e Wi-Fi), e o filtro "só os que estão online" vem desmarcado.
+- Novo comando `acessowifi rede` (no servidor, como root): mostra como o FortiGate responde cada fonte, para diagnóstico.
+
 ## 1.10 — 2026-11-02
 - Nova aba **Rede**: todos os aparelhos que o FortiGate enxerga, no Wi-Fi e no cabo (televisões, computadores, impressoras...), com IP, MAC, fabricante, sistema, por onde estão conectados e quando foram vistos pela última vez.
 - Botões **Bloquear** e **Desbloquear**: o aparelho bloqueado fica sem internet e sem acesso às outras redes, pelo Wi-Fi ou pelo cabo, até ser desbloqueado. O painel não deixa bloquear o aparelho que você está usando nem o servidor do painel.

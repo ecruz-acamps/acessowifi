@@ -63,10 +63,36 @@ def set_name(mac, name):
 
 # ------------------------------------------------------------------ lista de aparelhos
 
-def _source(label, fn, warnings):
+def _rows(value):
+    """Entradas de uma resposta do monitor em qualquer formato: lista, objeto único, ou listas dentro
+    de um objeto (ex.: {"ipv4": [...], "ipv6": [...]}, que algumas versões do FortiOS devolvem)."""
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            out.extend(_rows(item) if isinstance(item, (list, dict)) and not _is_entry(item) else [item])
+        return [r for r in out if isinstance(r, dict)]
+    if isinstance(value, dict):
+        if _is_entry(value):
+            return [value]
+        return [r for v in value.values() if isinstance(v, (list, dict)) for r in _rows(v)]
+    return []
+
+
+def _is_entry(item):
+    return isinstance(item, dict) and any(k in item for k in ("mac", "mac_address", "macaddr", "ip", "ipv4_address"))
+
+
+def _mac_of(item):
+    return item.get("mac") or item.get("mac_address") or item.get("macaddr") or ""
+
+
+def _source(label, fn, warnings, counts):
     try:
-        return fn()
+        rows = _rows(fn())
+        counts[label] = len(rows)
+        return rows
     except FortiGateError as e:
+        counts[label] = None
         if e.status in (401, 403):
             warnings.append(f"{label}: o token não tem permissão para ler isto. No servidor, rode "
                             "\"acessowifi permissoes\".")
@@ -92,11 +118,15 @@ def blocked_macs(fgt):
 
 
 def list_devices(fgt, wifi_clients=None, auth_users=None):
-    warnings = []
-    inventory = _source("Inventário de aparelhos", fgt.device_inventory, warnings)
-    leases = _source("DHCP", fgt.dhcp_leases, warnings)
-    arp = _source("Tabela ARP", fgt.arp_table, warnings)
-    wifi = wifi_clients if wifi_clients is not None else _source("Clientes Wi-Fi", fgt.wifi_clients, warnings)
+    warnings, counts = [], {}
+    inventory = _source("Inventário", fgt.device_inventory, warnings, counts)
+    leases = _source("DHCP", fgt.dhcp_leases, warnings, counts)
+    arp = _source("ARP", fgt.arp_table, warnings, counts)
+    if wifi_clients is not None:
+        wifi = _rows(wifi_clients)
+        counts["Wi-Fi"] = len(wifi)
+    else:
+        wifi = _source("Wi-Fi", fgt.wifi_clients, warnings, counts)
     auth = {a.get("ipaddr"): a.get("username") for a in (auth_users or []) if a.get("ipaddr")}
     blocked = blocked_macs(fgt)
     names = _load_names()
@@ -113,7 +143,7 @@ def list_devices(fgt, wifi_clients=None, auth_users=None):
                                         "sources": []})
 
     for d in inventory:
-        e = entry(d.get("mac"))
+        e = entry(_mac_of(d))
         if not e:
             continue
         e.update(ip=d.get("ipv4_address") or e["ip"], hostname=d.get("hostname") or e["hostname"],
@@ -124,7 +154,7 @@ def list_devices(fgt, wifi_clients=None, auth_users=None):
             e["last_seen"] = int(d["last_seen"])
         e["sources"].append("inventário")
     for d in leases:
-        e = entry(d.get("mac"))
+        e = entry(_mac_of(d))
         if not e:
             continue
         e["ip"] = e["ip"] or d.get("ip", "")
@@ -132,10 +162,10 @@ def list_devices(fgt, wifi_clients=None, auth_users=None):
         e["interface"] = e["interface"] or d.get("interface", "")
         e["sources"].append("DHCP")
     for d in arp:
-        e = entry(d.get("mac"))
+        e = entry(_mac_of(d))
         if not e:
             continue
-        e["ip"] = e["ip"] or d.get("ip", "")
+        e["ip"] = e["ip"] or d.get("ip") or d.get("address", "")
         e["interface"] = e["interface"] or d.get("interface", "")
         e["online"] = True   # na ARP = falou com o FortiGate há pouco
         e["sources"].append("ARP")
@@ -163,7 +193,7 @@ def list_devices(fgt, wifi_clients=None, auth_users=None):
             e["last_seen"] = int(now)
     result = sorted(devices.values(), key=lambda d: (not d["online"], not d["blocked"],
                                                      (d["name"] or d["hostname"] or d["mac"]).lower()))
-    return {"devices": result, "warnings": warnings}
+    return {"devices": result, "warnings": warnings, "counts": counts}
 
 
 # ------------------------------------------------------------------ bloqueio

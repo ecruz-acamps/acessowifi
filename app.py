@@ -977,6 +977,26 @@ def check_fortigate_command(escrita):
     raise SystemExit(1 if failures else 0)
 
 
+@app.cli.command("network-debug")
+def network_debug_command():
+    """Mostra como o FortiGate responde cada fonte da aba Rede (para ajustar o painel)."""
+    for label, path, read in (("Inventário", "monitor/user/device/query", fgt.device_inventory),
+                              ("DHCP", "monitor/system/dhcp", fgt.dhcp_leases),
+                              ("ARP", "monitor/network/arp", fgt.arp_table),
+                              ("Wi-Fi", "monitor/wifi/client", fgt.wifi_clients)):
+        print(f"== {label}: {path}")
+        try:
+            raw = read()
+        except FortiGateError as e:
+            print(f"   ERRO: {e}")
+            continue
+        rows = network._rows(raw)
+        print(f"   formato: {type(raw).__name__}, {len(raw) if hasattr(raw, '__len__') else '?'} item(ns); "
+              f"o painel entende {len(rows)} aparelho(s)")
+        sample = rows[0] if rows else (raw[0] if isinstance(raw, list) and raw else raw)
+        print("   exemplo:", json.dumps(sample, ensure_ascii=False, default=str)[:600])
+
+
 @app.cli.command("cleanup-devices")
 def cleanup_devices_command():
     """Remove liberações por MAC vencidas. Rodar periodicamente (systemd timer)."""
