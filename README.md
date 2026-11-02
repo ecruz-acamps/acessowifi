@@ -75,8 +75,9 @@ O painel pode ser instalado como app: no Android e no Chrome do computador, pelo
 
 Os navegadores só instalam apps de sites com HTTPS **confiável**. Como o servidor fica fora da internet, ele tem uma **autoridade certificadora própria** (`deploy/acessowifi-cert.sh`), criada pelo instalador ou pela atualização. Em cada aparelho que vai usar o painel, abra **`https://IP_DO_SERVIDOR/certificado`**, baixe o certificado e siga o passo a passo da página. Isso é feito uma vez por aparelho e também tira o aviso de "conexão não particular".
 
-- O certificado só vale para o nome e os IPs deste servidor (*name constraints*): mesmo que alguém roube a chave dele em `/etc/ssl/acessowifi/ca.key`, não consegue se passar por outros sites.
-- Se o IP ou o nome do servidor mudar, o certificado é refeito, e os aparelhos precisam reinstalá-lo.
+- Basta instalar **uma vez** por aparelho. O certificado instalado é permanente: as atualizações e as trocas de IP do servidor não o mudam. Só o certificado do servidor, assinado por ele, é refeito quando os IPs mudam, e os aparelhos nem percebem.
+- Ele só vale para endereços internos (redes privadas, `100.64.0.0/10` de VPN e nomes como `.local` e `.lan`), por *name constraints*: mesmo que alguém roube a chave em `/etc/ssl/acessowifi/ca.key`, não consegue se passar por sites da internet.
+- Para gerar outro certificado de propósito (os aparelhos precisam reinstalar): `bash /opt/acessowifi/deploy/acessowifi-cert.sh --forcar`.
 - O app não guarda dados no aparelho: usuários, senhas e conectados vêm sempre do servidor. Sem conexão, ele mostra uma tela avisando.
 
 ## Atualizações pelo botão

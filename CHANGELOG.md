@@ -3,6 +3,10 @@
 Cada versão nova aumenta o número depois do ponto (1.0, 1.1, 1.2...). O botão **Atualizações** do painel
 mostra as versões disponíveis e o que cada uma traz, a partir deste arquivo.
 
+## 1.12 — 2026-11-02
+- Certificado do painel: agora é **permanente**. Antes, ele era refeito a cada atualização em que os IPs do servidor mudavam (comum em servidores com Docker, VPN ou apps), e era preciso reinstalá-lo em todos os aparelhos. Depois desta versão, é preciso instalar o certificado uma última vez pela página `/certificado`; daí em diante, as atualizações não mexem mais nele.
+- Por segurança, o certificado continua sem valer para sites da internet: só para endereços internos (redes privadas, VPN e nomes locais).
+
 ## 1.11 — 2026-11-02
 - Aba Rede: o painel entende mais formatos de resposta do FortiGate para a tabela ARP, o DHCP e o inventário (por exemplo, listas separadas por IPv4 e IPv6). Antes, nesses casos, a aba ficava vazia sem avisar.
 - Aba Rede: mostra quantos aparelhos vieram de cada fonte (inventário, DHCP, ARP e Wi-Fi), e o filtro "só os que estão online" vem desmarcado.
