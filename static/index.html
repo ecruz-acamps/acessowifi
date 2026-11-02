@@ -39,6 +39,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="clients" aria-selected="true">Conectados agora</button>
       <button role="tab" data-tab="users">Usuários cadastrados</button>
+      <button role="tab" data-tab="network">Rede</button>
       <button role="tab" data-tab="devices">Aparelhos liberados</button>
       <button role="tab" data-tab="ssids">SSIDs</button>
       <button role="tab" data-tab="aps">Access Points</button>
@@ -70,6 +71,19 @@
         </tr></thead>
         <tbody id="users-body"></tbody>
       </table>
+    </div>
+
+    <div data-panel="network" hidden>
+      <p class="muted small-note">Todos os aparelhos que o FortiGate enxerga: Wi-Fi, cabo e outras redes. Bloquear corta a
+        internet e o acesso às outras redes do aparelho (pelo MAC), até você desbloquear.</p>
+      <p id="network-warnings" class="warning" hidden></p>
+      <label class="check" style="margin: 0 2px 10px"><input id="network-online" type="checkbox" checked> só os que estão online</label>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Aparelho</th><th>IP / MAC</th><th>Conexão</th><th>Visto</th><th>Status</th><th></th></tr></thead>
+          <tbody id="network-body"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="table-wrap" data-panel="devices" hidden>

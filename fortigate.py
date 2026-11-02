@@ -145,6 +145,10 @@ class FortiGate:
     def delete_address(self, name):
         return self._write("DELETE", f"cmdb/firewall/address/{quote(name, safe='')}")
 
+    def create_address_group(self, name, members, comment=""):
+        return self._write("POST", "cmdb/firewall/addrgrp",
+                           json={"name": name, "member": [{"name": m} for m in members], "comment": comment})
+
     def add_group_member(self, group, name):
         return self._write("POST", f"cmdb/firewall/addrgrp/{quote(group, safe='')}/member", json={"name": name})
 
@@ -159,6 +163,16 @@ class FortiGate:
         return self.get("cmdb/firewall/policy")
 
     # --- Estado em tempo real (monitor) ---
+    # --- Todos os aparelhos que o FortiGate enxerga (aba Rede) ---
+    def device_inventory(self):
+        return self.get("monitor/user/device/query")
+
+    def dhcp_leases(self):
+        return self.get("monitor/system/dhcp")
+
+    def arp_table(self):
+        return self.get("monitor/network/arp")
+
     def wifi_clients(self):
         return self.get("monitor/wifi/client")
 

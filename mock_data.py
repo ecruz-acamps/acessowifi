@@ -110,6 +110,12 @@ class MockFortiGate:
         self._addresses.pop(name, None)
         return {"status": "success"}
 
+    def create_address_group(self, name, members, comment=""):
+        if name in self._addrgrp:
+            raise FortiGateError("FortiGate respondeu 500: entrada duplicada")
+        self._addrgrp[name] = {"name": name, "member": [{"name": m} for m in members], "comment": comment}
+        return {"status": "success"}
+
     def add_group_member(self, group, name):
         self._addrgrp[group]["member"].append({"name": name})
         return {"status": "success"}
@@ -271,6 +277,38 @@ class MockFortiGate:
              "data_rate_bps": random.choice([72, 144, 433, 866]) * 1_000_000, "vlan_id": 30,
              "association_time": now - random.randint(60, 4 * 3600), "idle_time": random.randint(0, 120)}
             for ip, mac, host, os_, ap, radio, ch in base
+        ]
+
+    def device_inventory(self):
+        now = int(time.time())
+        return [
+            {"mac": "a4:83:e7:11:22:33", "ipv4_address": "10.10.30.21", "hostname": "Galaxy-A54", "os_name": "Android",
+             "hardware_vendor": "Samsung", "hardware_type": "Mobile", "detected_interface": "Acampamento",
+             "is_online": True, "last_seen": now - 20},
+            {"mac": "70:2a:d5:aa:10:01", "ipv4_address": "192.168.1.40", "hostname": "LG-webOS-TV", "os_name": "webOS",
+             "hardware_vendor": "LG", "hardware_type": "Media", "detected_interface": "internal",
+             "is_online": True, "last_seen": now - 5},
+            {"mac": "d8:bb:c1:00:00:07", "ipv4_address": "192.168.1.15", "hostname": "PC-SECRETARIA",
+             "os_name": "Windows", "hardware_vendor": "Dell", "hardware_type": "Computer",
+             "detected_interface": "internal", "is_online": False, "last_seen": now - 5400},
+        ]
+
+    def dhcp_leases(self):
+        return [
+            {"ip": "192.168.1.40", "mac": "70:2a:d5:aa:10:01", "hostname": "LG-webOS-TV", "interface": "internal",
+             "status": "leased"},
+            {"ip": "192.168.1.15", "mac": "d8:bb:c1:00:00:07", "hostname": "PC-SECRETARIA", "interface": "internal",
+             "status": "leased"},
+            {"ip": "10.10.30.77", "mac": "dc:a6:32:01:02:03", "hostname": "Redmi-Note", "interface": "Acampamento",
+             "status": "leased"},
+        ]
+
+    def arp_table(self):
+        return [
+            {"ip": "192.168.1.40", "mac": "70:2a:d5:aa:10:01", "interface": "internal", "age": 12},
+            {"ip": "192.168.1.50", "mac": "52:54:00:12:34:56", "interface": "internal", "age": 3},   # servidor
+            {"ip": "192.168.1.60", "mac": "00:11:32:9a:bc:de", "interface": "internal", "age": 40},  # IP fixo
+            {"ip": "10.10.30.21", "mac": "a4:83:e7:11:22:33", "interface": "Acampamento", "age": 2},
         ]
 
     def firewall_auth_users(self):

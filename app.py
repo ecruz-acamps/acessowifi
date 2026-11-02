@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash
 
+import network
 import ssids
 from fortigate import FortiGate, FortiGateError
 
@@ -172,6 +173,11 @@ def unexpected_error(e):
         return "Erro interno do painel. Detalhes: acessowifi log", 500
     return jsonify(error=f"Erro interno do painel ({type(e).__name__}: {e}). "
                          f"Versão {APP_VERSION}. Detalhes no log do servidor: acessowifi log"), 500
+
+
+@app.errorhandler(network.NetworkError)
+def network_error(e):
+    return jsonify(error=str(e)), 400
 
 
 @app.errorhandler(ssids.SSIDError)
@@ -386,8 +392,8 @@ def allowed_devices(groups=None):
 
     devices = []
     for a in fgt.addresses(MAC_PREFIX):
-        if not a.get("name", "").startswith(MAC_PREFIX):
-            continue
+        if not a.get("name", "").startswith(MAC_PREFIX) or a["name"].startswith(network.BLOCK_PREFIX):
+            continue   # "acessowifi-blk-*" são os bloqueados da aba Rede, não liberações
         meta = _decode_comment(a.get("comment"))
         mac = _address_mac(a)
         if meta.get("group"):
@@ -784,6 +790,55 @@ def api_updates_install():
     return jsonify(ok=True)
 
 
+# --- Rede: todos os aparelhos que o FortiGate enxerga, com bloqueio ---
+
+def _protected_ips():
+    """IPs que não podem ser bloqueados: quem está usando o painel e o próprio servidor."""
+    ips = {request.headers.get("X-Forwarded-For", "").split(",")[0].strip(), request.remote_addr}
+    try:
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect((os.getenv("FGT_HOST", "127.0.0.1").split(":")[0], 9))
+            ips.add(sock.getsockname()[0])
+    except OSError:
+        pass
+    return {ip for ip in ips if ip}
+
+
+@app.get("/api/network")
+@login_required
+def api_network():
+    result = network.list_devices(fgt, wifi_clients=fgt.wifi_clients(), auth_users=fgt.firewall_auth_users())
+    protected = _protected_ips()
+    for d in result["devices"]:
+        d["protected"] = d["ip"] in protected
+    return jsonify(result)
+
+
+@app.post("/api/network/block")
+@login_required
+def api_network_block():
+    data = request.get_json(silent=True) or {}
+    mac = network.block(fgt, data.get("mac"), data.get("name", ""), session["user"], _protected_ips())
+    app.logger.info("%s bloqueou o aparelho %s (%s)", session["user"], mac, data.get("name", ""))
+    return jsonify(ok=True, mac=mac)
+
+
+@app.delete("/api/network/block/<mac>")
+@login_required
+def api_network_unblock(mac):
+    mac = network.unblock(fgt, mac)
+    app.logger.info("%s desbloqueou o aparelho %s", session["user"], mac)
+    return jsonify(ok=True, mac=mac)
+
+
+@app.put("/api/network/name")
+@login_required
+def api_network_name():
+    data = request.get_json(silent=True) or {}
+    return jsonify(ok=True, name=network.set_name(data.get("mac"), data.get("name")))
+
+
 # --- SSIDs extras (com agendamento e escolha de FortiAPs) ---
 
 @app.get("/api/ssids")
@@ -856,6 +911,9 @@ def check_fortigate_command(escrita):
     check("Clientes Wi-Fi (FortiAP)", lambda: f"{len(fgt.wifi_clients())} conectado(s)")
     check("Usuários autenticados (captive portal)", lambda: f"{len(fgt.firewall_auth_users())} sessão(ões)")
     check("Access points", lambda: f"{len(fgt.managed_aps())} AP(s)")
+    check("Inventário de aparelhos (aba Rede)", lambda: f"{len(fgt.device_inventory())} aparelho(s)")
+    check("DHCP (aba Rede)", lambda: f"{len(fgt.dhcp_leases())} concessão(ões)")
+    check("Tabela ARP (aba Rede)", lambda: f"{len(fgt.arp_table())} entrada(s)")
     check("Servidores SAML (Google)", lambda: ", ".join(_names(fgt.saml_servers())) or "nenhum")
 
     def guest_groups():

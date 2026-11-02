@@ -3,6 +3,11 @@
 Cada versão nova aumenta o número depois do ponto (1.0, 1.1, 1.2...). O botão **Atualizações** do painel
 mostra as versões disponíveis e o que cada uma traz, a partir deste arquivo.
 
+## 1.10 — 2026-11-02
+- Nova aba **Rede**: todos os aparelhos que o FortiGate enxerga, no Wi-Fi e no cabo (televisões, computadores, impressoras...), com IP, MAC, fabricante, sistema, por onde estão conectados e quando foram vistos pela última vez.
+- Botões **Bloquear** e **Desbloquear**: o aparelho bloqueado fica sem internet e sem acesso às outras redes, pelo Wi-Fi ou pelo cabo, até ser desbloqueado. O painel não deixa bloquear o aparelho que você está usando nem o servidor do painel.
+- Dá para dar nome aos aparelhos (ex.: "Televisão do refeitório").
+
 ## 1.9 — 2026-10-31
 - Servidor: some do log o erro "Control server error: Read-only file system" que as versões novas do gunicorn mostravam a cada inicialização. O painel já funcionava normalmente; era só um aviso.
 

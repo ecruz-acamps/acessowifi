@@ -1,7 +1,7 @@
 const REFRESH_MS = 30_000;
 const state = { tab: "clients", clients: [], users: [], devices: [], aps: [], groups: [], editing: null, device: null,
   ssid: { ready: false, reason: "", aps: [], ssids: [] }, ssidError: "", editingSsid: null,
-  updates: { state: "unavailable", pending: [] } };
+  updates: { state: "unavailable", pending: [] }, network: { devices: [], warnings: [] }, networkError: "" };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -259,9 +259,86 @@ function renderSsids(q) {
   }
 }
 
+function seenText(d) {
+  if (d.online) return badge("online", "ok");
+  if (!d.last_seen) return el("span", "–", "muted");
+  const min = Math.round((Date.now() / 1000 - d.last_seen) / 60);
+  return el("span", min < 60 ? `há ${min} min` : min < 1440 ? `há ${Math.round(min / 60)} h` : `há ${Math.round(min / 1440)} dias`, "muted");
+}
+
+function renderNetwork(q) {
+  const body = $("#network-body");
+  body.replaceChildren();
+  const warn = [state.networkError, ...(state.network.warnings || [])].filter(Boolean).join(" ");
+  $("#network-warnings").textContent = warn;
+  $("#network-warnings").hidden = !warn;
+  const onlyOnline = $("#network-online").checked;
+  const rows = state.network.devices.filter((d) => (!onlyOnline || d.online || d.blocked) && matches(d, q));
+  if (!rows.length) return emptyRow(body, 6, onlyOnline ? "Nenhum aparelho online." : "Nenhum aparelho.");
+
+  for (const d of rows) {
+    const tr = document.createElement("tr");
+    if (d.blocked) tr.className = "blocked-row";
+    const title = d.name || d.hostname || "Aparelho sem nome";
+    const details = [d.name && d.hostname !== d.name ? d.hostname : "", d.vendor, d.os, d.type].filter(Boolean).join(" · ");
+    const conn = d.ssid ? `Wi-Fi: ${d.ssid}` : d.connection || "–";
+    const connDetail = d.ssid ? d.ap : d.interface ? `interface ${d.interface}` : "";
+    const actions = document.createElement("td");
+    actions.className = "actions-cell";
+    actions.append(actionButton("Renomear", "", () => renameDevice(d)));
+    if (d.blocked) actions.append(actionButton("Desbloquear", "", () => unblockDevice(d)));
+    else if (d.protected) actions.append(el("small", "você / servidor", "muted"));
+    else actions.append(actionButton("Bloquear", "danger", () => blockDevice(d)));
+    tr.append(
+      cell(el("div", title, "strong"), details ? el("small", details, "muted") : null, d.user ? el("small", `login: ${d.user}`, "muted") : null),
+      cell(el("div", d.ip || "–", "mono"), el("small", d.mac, "mono muted")),
+      cell(conn, connDetail ? el("small", connDetail, "muted") : null),
+      cell(seenText(d)),
+      cell(d.blocked ? badge("bloqueado", "bad") : badge("liberado", "neutral")),
+      actions,
+    );
+    body.append(tr);
+  }
+}
+
+async function blockDevice(d) {
+  const label = d.name || d.hostname || d.mac;
+  if (!confirm(`Bloquear "${label}"? Ele fica sem internet e sem acesso às outras redes até você desbloquear.`)) return;
+  try {
+    await api("/api/network/block", { method: "POST", body: JSON.stringify({ mac: d.mac, name: d.name || d.hostname }) });
+    await loadNetwork();
+  } catch (e) { showError(e.message); }
+}
+
+async function unblockDevice(d) {
+  try {
+    await api(`/api/network/block/${encodeURIComponent(d.mac)}`, { method: "DELETE" });
+    await loadNetwork();
+  } catch (e) { showError(e.message); }
+}
+
+async function renameDevice(d) {
+  const name = prompt("Nome do aparelho (ex.: Televisão do refeitório). Deixe em branco para tirar o nome:", d.name || "");
+  if (name === null) return;
+  try {
+    await api("/api/network/name", { method: "PUT", body: JSON.stringify({ mac: d.mac, name }) });
+    await loadNetwork();
+  } catch (e) { showError(e.message); }
+}
+
+async function loadNetwork() {
+  try {
+    state.network = await api("/api/network");
+    state.networkError = "";
+  } catch (e) {
+    state.networkError = e.message;
+  }
+  if (state.tab === "network") render();
+}
+
 function render() {
   const q = $("#search").value.trim().toLowerCase();
-  ({ clients: renderClients, users: renderUsers, devices: renderDevices, ssids: renderSsids, aps: renderAps })[state.tab](q);
+  ({ clients: renderClients, users: renderUsers, network: renderNetwork, devices: renderDevices, ssids: renderSsids, aps: renderAps })[state.tab](q);
 
   const isUsers = state.tab === "users";
   $("#new-user").hidden = !isUsers || !state.groups.length;
@@ -301,6 +378,7 @@ async function load() {
     );
     showError("");
     loadUpdates();
+    loadNetwork();
     // SSIDs à parte: sem a permissão nova no token, só esta aba mostra o aviso
     await api("/api/ssids").then((d) => { state.ssid = d; state.ssidError = ""; })
       .catch((e) => { state.ssidError = e.message; });
@@ -743,6 +821,7 @@ document.querySelectorAll("[role=tab]").forEach((b) =>
   }),
 );
 $("#search").addEventListener("input", render);
+$("#network-online").addEventListener("change", render);
 $("#show-expired").addEventListener("change", render);
 $("#refresh").addEventListener("click", load);
 $("#new-user").addEventListener("click", () => openUserDialog());

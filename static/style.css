@@ -148,3 +148,6 @@ a.button.ghost { background: transparent; color: var(--muted); border: 1px solid
   .cert-box .cred { grid-template-columns: 1fr; gap: 2px; }
   .cert-box .cred dd { margin-bottom: 8px; }
 }
+
+tr.blocked-row td { background: var(--bad-bg); }
+tr.blocked-row td:first-child { box-shadow: inset 3px 0 0 var(--bad); }

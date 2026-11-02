@@ -9,6 +9,7 @@ Painel interno para o Wi-Fi do acampamento (FortiGate 40F + FortiAP, captive por
 - **SSIDs extras**: criar redes na mesma rede do SSID principal, com acesso igual ao dele (captive portal), WPA2 com senha ou sem senha, em FortiAPs escolhidos, num período (início e fim) ou ligadas e desligadas na hora. O FortiGate cuida do horário sozinho.
 - Ver os FortiAPs e quantos clientes cada um tem.
 - **Instalar como app** (PWA) no celular ou no computador.
+- Aba **Rede**: todos os aparelhos que o FortiGate enxerga (Wi-Fi e cabo), com **bloquear/desbloquear** e nome para cada aparelho.
 
 Roda no seu servidor, sem nada na nuvem.
 
@@ -135,6 +136,7 @@ O assistente de configuração também tem um modo simulado: `.venv/bin/python d
 | `app.py` | Painel (rotas, login, regras de cadastro) e comandos `check-fortigate` e `cleanup-devices` |
 | `fortigate.py` | Cliente da API REST do FortiOS |
 | `ssids.py` | SSIDs extras: criação, agendamento e FortiAPs |
+| `network.py` | Aba Rede: todos os aparelhos e bloqueio por MAC |
 | `static/` | Páginas e JavaScript |
 | `deploy/install.sh` | Instalador |
 | `deploy/acessowifi-update.sh` | Verifica e instala atualizações do GitHub (botão do painel) |

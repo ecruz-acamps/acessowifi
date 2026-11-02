@@ -241,6 +241,21 @@ Depende de como o SSID principal está montado. O instalador, o `acessowifi test
 - Ao remover o SSID, o painel apaga junto a política, o DHCP e a interface dele.
 - Na rede própria, a política modelo é a primeira política que aceita tráfego com origem no SSID principal. Se ela não existir, a aba avisa e não cria SSIDs.
 
+## Aba Rede (bloquear aparelhos)
+
+A aba **Rede** mostra todos os aparelhos que o FortiGate enxerga, no Wi-Fi e no cabo. Ela junta o inventário de aparelhos (*Device Inventory*), o DHCP, a tabela ARP e os clientes dos FortiAPs. Se o token não puder ler alguma dessas fontes, a aba mostra um aviso e continua com as outras.
+
+No primeiro bloqueio, o painel cria no FortiGate:
+- o grupo de endereços `WiFi-MAC-Bloqueados`, com o endereço fictício `acessowifi-blk-vazio`, porque o FortiOS não aceita grupo vazio;
+- a política `acessowifi-bloqueados`: **negar**, de qualquer interface para qualquer interface, origem `WiFi-MAC-Bloqueados`. Ela fica **no topo** da lista, para valer antes de qualquer política que aceite.
+
+Cada aparelho bloqueado vira um endereço MAC `acessowifi-blk-<mac>` nesse grupo. Desbloquear tira o endereço do grupo e o apaga.
+
+- O bloqueio barra o tráfego que **passa pelo FortiGate**: internet e outras redes. Dois aparelhos ligados no mesmo switch, na mesma rede, continuam se falando, porque esse tráfego não passa pelo FortiGate.
+- Conexões já abertas são reavaliadas pelo FortiGate quando a política muda (padrão `firewall-session-dirty check-all`). Em geral o corte é imediato.
+- O painel não deixa bloquear o aparelho de quem está usando o painel nem o servidor do painel.
+- Para desfazer tudo: desbloqueie os aparelhos pela aba, depois apague a política `acessowifi-bloqueados`, o grupo `WiFi-MAC-Bloqueados` e o endereço `acessowifi-blk-vazio`.
+
 ## Como conferir
 
 No servidor, como root:
